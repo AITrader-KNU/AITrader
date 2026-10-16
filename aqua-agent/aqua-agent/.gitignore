@@ -1,0 +1,21 @@
+# 비밀값 — 절대 커밋하지 않기
+.env
+
+# 로컬 데이터·로그
+data/*.db
+data/*.db-journal
+logs/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# 에디터·OS
+.vscode/
+.idea/
+.DS_Store
+.ipynb_checkpoints/

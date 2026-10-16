@@ -1,0 +1,60 @@
+# 모든 매매 수치는 여기서만 관리합니다. 코드에 숫자를 직접 쓰지 마세요.
+# 값을 바꾸면 설계도 5절 '매매 규칙'에도 반영해 주세요.
+
+timezone: Asia/Seoul
+
+schedule:
+  premarket: "08:00"                     # 데이터 갱신 + 후보 선정
+  reevaluate: ["09:30", "11:00", "13:00"] # 판단 에이전트 실행 시각  [전략]
+  exit_check_minutes: 15                 # 청산 감시 주기
+  market_open: "09:00"
+  market_close: "15:00"
+  buy_cutoff: "14:00"                    # 이 시각 이후 신규 매수 금지  [전략]
+  holidays: []                           # 평일 휴장일 (예: "2026-12-25")
+
+universe:
+  liquidity_top_n: 300        # 20일 평균 (종가×거래량) 상위 N개          [전략]
+  liquidity_window: 20
+
+candidates:
+  top_n: 15                   # 하루 후보 수                              [전략]
+  ma_window: 20               # 추세 조건: 종가 > 20일 이동평균
+  require_rising_ma: false    # 20일선이 올라가는 중인지도 볼지
+  momentum:
+    lookback_days: 120        # 모멘텀 계산 기간
+    skip_recent_days: 20      # 최근 1달 제외
+    high_window_days: 250     # 52주 고가 근접도
+  overheat:
+    max_ret_5d: 0.15          # 최근 5일 +15% 초과 시 제외                [전략]
+    max_ret_1d: 0.08          # 당일 +8% 초과 시 제외
+
+risk:
+  max_weight_per_stock: 0.15  # 종목당 총자산 대비 최대 비중              [전략·팀장 확인]
+  max_positions: 6
+  internal_trade_limit_per_hour: 30   # AQuA 한도는 시간당 30회
+
+exit:
+  stop_loss: -0.04            # 손절                                       [전략]
+  take_profit: 0.06           # 익절
+  take_profit_sell_ratio: 1.0 # 익절 시 매도 비율 (1.0 = 전량)
+  max_holding_days: 5         # 매수 후 N거래일 지나면 정리
+  sell_on_bad_news: true      # LLM이 악재로 판정하면 매도
+
+order:
+  buy_type: market            # [팀장] 호가 잔량 확인 후 시장가
+  sell_type: market
+
+llm:
+  model: ""                   # NLP·LLM 담당이 확정
+  max_headlines_per_stock: 5
+  max_retries: 1
+
+api:
+  max_calls_per_minute: 80    # AQuA 한도 100회보다 여유 있게
+
+db:
+  path: data/aqua.db
+
+log:
+  dir: logs
+  level: INFO
