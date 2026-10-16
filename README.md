@@ -22,8 +22,8 @@
 ## 처음 설정
 
 ```bash
-git clone <저장소 주소>
-cd aqua-agent
+git clone https://github.com/AITrader-KNU/AITrader.git
+cd AITrader
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
