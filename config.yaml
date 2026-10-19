@@ -44,6 +44,10 @@ order:
   buy_type: market            # [팀장] 호가 잔량 확인 후 시장가
   sell_type: market
 
+fees:                         # AQuA API 문서 기준 (토스증권 코스피 수수료 체계)
+  commission: 0.00015         # 매수·매도 모두 체결 금액의 0.015%
+  sell_tax: 0.002             # 매도 시 증권거래세+농특세 0.20%  → 왕복 약 0.23%
+
 llm:
   model: ""                   # NLP·LLM 담당이 확정
   max_headlines_per_stock: 5

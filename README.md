@@ -11,13 +11,14 @@
 | `common/` | 공통(AQuA API, DB, 설정, 로그) | 데이터·인프라 (주문 함수는 팀장) | – | – |
 | `data_collector/` | 4-1 데이터 수집기 | 데이터·인프라 | daily_candles, news | candidates, positions_meta |
 | `candidate_selector/` | 4-2 후보 선정기 | 전략 | candidates | daily_candles |
-| `news_judge/` | 4-3 뉴스 분석·판단 (LLM) | NLP·LLM | decisions | candidates, news |
+| `news_judge/` | 4-3 뉴스 분석·판단 (LLM) | NLP·LLM | decisions | candidates, news, 포트폴리오 |
 | `order_manager/` | 4-4 주문·리스크 관리자 | 팀장 | orders_log, positions_meta, 요청 status | decisions, sell_requests |
-| `exit_monitor/` | 4-5 청산 감시자 | 전략 | sell_requests | positions_meta, decisions |
+| `exit_monitor/` | 4-5 청산 감시자 | 전략 | sell_requests | positions_meta, 포트폴리오 |
 
 - `main.py`: 스케줄러. 정해진 시각에 위 에이전트를 순서대로 부릅니다.
 - `config.yaml`: 모든 매매 수치. 코드에 숫자를 직접 쓰지 않습니다.
 - `common/db.py`: 7개 테이블 정의(열 설명 포함).
+- `docs/API.md`: AQuA 모의투자 API 정리(엔드포인트, 체결 방식, 수수료, 에러 코드).
 
 ## 처음 설정
 
@@ -55,6 +56,7 @@ python main.py --once exit         # 청산 사이클만: 청산 감시 → 주�
 2. **주문은 `order_manager`만 냅니다.** 다른 사람은 테스트로도 `place_order`를 부르지 않습니다(거래 횟수와 30분 락을 팀이 공유).
 3. **비밀값은 `.env`에만.** 팀 코드, 서버 주소, API 키를 코드·`config.yaml`·커밋 메시지에 쓰지 않습니다.
 4. **수치는 `config.yaml`에만.** 값을 바꾸면 설계도 5절에도 반영합니다.
+   - 매매에는 수수료·세금이 붙습니다(사고팔면 약 0.23%). 잦은 매매는 그만큼 불리합니다.
 5. **투자 기간(11월)에는 장중(09:00~15:00)에 서버 코드를 바꾸지 않습니다.** 장 마감 후 반영하고 다음 날 지켜봅니다.
 
 ## 브랜치 규칙

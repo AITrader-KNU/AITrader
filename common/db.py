@@ -4,11 +4,13 @@
 daily_candles   4-1 데이터 수집기      4-2 후보 선정기
 news            4-1 데이터 수집기      4-3 판단 에이전트
 candidates      4-2 후보 선정기        4-3 판단 에이전트
-decisions       4-3 판단 에이전트      4-4 주문 관리자, 4-5 청산 감시자(악재)
+decisions       4-3 판단 에이전트      4-4 주문 관리자 (BUY·SELL·WAIT 모두 처리)
 sell_requests   4-5 청산 감시자        4-4 주문 관리자
 positions_meta  4-4 주문 관리자        4-5 청산 감시자
 orders_log      4-4 주문 관리자        점검·분석
 
+요청 테이블(decisions, sell_requests)의 status 는 주문 관리자만 바꿉니다.
+positions_meta 에는 지금 보유 중인 종목만 남기고, 전량 매도하면 지웁니다.
 열(column)을 바꾸려면 팀원에게 먼저 알리고 설계도 5절도 함께 고칩니다.
 """
 import sqlite3
@@ -71,7 +73,8 @@ CREATE TABLE IF NOT EXISTS sell_requests (
     request_id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL,
     symbol     TEXT NOT NULL,
-    why        TEXT NOT NULL CHECK (why IN ('STOP_LOSS', 'TAKE_PROFIT', 'EXPIRED', 'BAD_NEWS')),
+    why        TEXT NOT NULL CHECK (why IN ('STOP_LOSS', 'TAKE_PROFIT', 'EXPIRED')),
+                                        -- 악재·LLM 매도는 decisions 의 SELL 로 처리
     status     TEXT NOT NULL DEFAULT 'NEW'
 );
 CREATE INDEX IF NOT EXISTS idx_sell_requests_status ON sell_requests (status);
@@ -90,7 +93,10 @@ CREATE TABLE IF NOT EXISTS orders_log (
     side           TEXT NOT NULL CHECK (side IN ('BUY', 'SELL')),
     quantity       INTEGER NOT NULL,
     status         TEXT,                -- OPEN / PARTIAL / FILLED / CANCELLED
-    executed_price INTEGER,
+    executed_price INTEGER,             -- 체결 수량 가중 평균 단가
+    total_amount   INTEGER,             -- 체결 금액 합계 (수수료·세금 미포함)
+    fee            INTEGER,             -- 수수료 (매수·매도 0.015%)
+    tax            INTEGER,             -- 매도 세금 (0.20%)
     source         TEXT,                -- 'decision:<id>' 또는 'sell_request:<id>'
     created_at     TEXT NOT NULL
 );
