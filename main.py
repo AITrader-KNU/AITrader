@@ -64,11 +64,18 @@ JOBS = {"premarket": premarket_job, "judge": judge_job, "exit": exit_job}
 
 
 def run_scheduler():
+    from apscheduler.executors.pool import ThreadPoolExecutor
     from apscheduler.schedulers.blocking import BlockingScheduler
 
     sch = CFG["schedule"]
     tz = CFG["timezone"]
-    scheduler = BlockingScheduler(timezone=tz)
+    # 작업을 한 번에 하나씩만 실행한다. 09:30·11:00·13:00에는 판단 작업과 청산 작업이
+    # 같은 시각에 걸리는데, 동시에 돌면 주문 관리자가 두 번 실행돼 같은 요청을 두 번 주문할 수 있다.
+    scheduler = BlockingScheduler(
+        timezone=tz,
+        executors={"default": ThreadPoolExecutor(1)},
+        job_defaults={"coalesce": True, "misfire_grace_time": 300},  # 밀린 작업은 5분 안이면 실행
+    )
 
     h, m = sch["premarket"].split(":")
     scheduler.add_job(_safe(premarket_job), "cron", day_of_week="mon-fri", hour=h, minute=m)

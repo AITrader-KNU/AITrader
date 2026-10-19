@@ -10,6 +10,7 @@
   - 주문 API(place_order, cancel_order)는 order_manager 만 호출합니다.
     다른 사람은 테스트로도 부르지 않습니다(거래 횟수·30분 락을 팀이 공유).
   - 모든 응답은 JSON, 시각은 ISO-8601 (KST, +09:00).
+  - 전체 API 설명은 docs/API.md
 """
 from common.config import env, get_config
 
@@ -18,7 +19,24 @@ TEAM_CODE = env("AQUA_TEAM_CODE")
 
 
 class AquaError(Exception):
-    """AQuA 가 4xx/5xx 를 돌려준 경우. code 예: RATE_LIMIT_EXCEEDED, SYMBOL_COOLDOWN, ORDER_NOT_OPEN"""
+    """AQuA 가 4xx/5xx 를 돌려준 경우. 에러 응답은 항상 {"error": {"code": ..., "message": ...}} 형태.
+
+    status  code                     의미 / 처리
+    400     INVALID_REQUEST          파라미터 오류 → 코드 버그, 로그 남기기
+    401     UNAUTHORIZED             토큰 만료·무효 → _request 가 재로그인 후 1회 재시도
+    401     INVALID_TEAM_CODE        .env 의 팀 코드 확인
+    404     UNKNOWN_SYMBOL           코스피 보통주가 아닌 종목
+    404     ORDER_NOT_FOUND          내 주문이 아니거나 없는 번호
+    422     MARKET_CLOSED            장 시간(09:00~15:00) 외
+    422     INSUFFICIENT_CASH        현금 부족 (대기 주문에 묶인 현금 제외 기준)
+    422     INSUFFICIENT_QUANTITY    매도 가능 수량 부족
+    422     NO_LIQUIDITY             시장가인데 닿는 호가가 없음
+    422     ORDER_NOT_OPEN           이미 체결·취소된 주문을 취소
+    429     TRADE_LIMIT_EXCEEDED     이번 시간 거래 횟수 소진 → resetAt(다음 정각)까지 주문 중단
+    429     SYMBOL_COOLDOWN          30분 락 → 메시지의 'tradable again at' 이후 재시도
+    429     RATE_LIMIT_EXCEEDED      분당 호출 한도 → _request 가 Retry-After 만큼 쉬고 재시도
+    502     MARKET_DATA_UNAVAILABLE  시세 제공처 장애 → _request 가 잠시 후 1회 재시도
+    """
 
     def __init__(self, status: int, code: str | None, message: str = ""):
         super().__init__(f"{status} {code} {message}")
@@ -26,7 +44,14 @@ class AquaError(Exception):
 
 
 def _request(method: str, path: str, *, params=None, json=None, auth=True) -> dict:
-    """공통 요청 함수. TODO(데이터·인프라): 토큰 관리, 호출 제한기, 429 재시도."""
+    """공통 요청 함수. TODO(데이터·인프라)
+    - 헤더 Authorization: Bearer {accessToken}. 토큰 만료 1시간 전이거나 401 이면 재로그인 후 1회 재시도
+    - 호출 제한기: config api.max_calls_per_minute(80) 를 넘지 않게 대기
+    - 에러 응답의 error.code / error.message 로 AquaError 를 만들어 raise
+    - 429 RATE_LIMIT_EXCEEDED: Retry-After 헤더(초)만큼 쉬고 재시도
+    - 502 MARKET_DATA_UNAVAILABLE: 몇 초 쉬고 1회 재시도
+    - 그 밖의 4xx 는 재시도하지 않고 그대로 raise (특히 주문 API는 자동 재시도 금지 — 중복 주문 위험)
+    - auth=False 인 호출(login, leaderboard)은 토큰 헤더 없이 보냄"""
     raise NotImplementedError
 
 
@@ -66,7 +91,8 @@ def get_candles(symbol: str, interval: str = "1d", count: int = 200, before: str
 # ---------- 계좌 ----------
 def get_portfolio() -> dict:
     """GET /api/portfolio → {cash, availableCash, totalAssetValue, totalProfit,
-    holdings:[{symbol, name, quantity, availableQuantity, avgBuyPrice, currentPrice}]}"""
+    holdings:[{symbol, name, quantity, availableQuantity, avgBuyPrice, currentPrice}]}
+    totalProfit 에는 수수료·세금이 이미 반영됨. 새 주문은 availableCash / availableQuantity 안에서만 가능."""
     raise NotImplementedError
 
 
@@ -81,19 +107,32 @@ def get_limit() -> dict:
 
 
 def get_leaderboard() -> dict:
-    """GET /api/leaderboard → {updatedAt, baseline:{KODEX 200}, rankings:[...]}. 15분마다 갱신."""
+    """GET /api/leaderboard → {updatedAt, baseline:{name, symbol:'069500', totalAssetValue, totalReturnRate},
+    rankings:[{rank, teamId, teamName, totalAssetValue, totalReturnRate, rankChange}]}.
+    토큰 불필요(auth=False). 15분마다 갱신. totalReturnRate 는 퍼센트(4.2 = +4.2%)."""
     raise NotImplementedError
 
 
 # ---------- 주문 (팀장 / order_manager 전용) ----------
 def place_order(symbol: str, side: str, quantity: int, price: int | None = None) -> dict:
     """POST /api/orders {symbol, order_code: BUY|SELL, quantity, price?}
-    price 생략 = 시장가(호가 잔량만큼 즉시 체결, 남은 수량 자동 취소). 주문 즉시 그 종목 30분 락.
-    응답: {orderId, status, filledQuantity, fills, executedPrice, remainingTrades, ...}
+    - price 생략 = 시장가: 지금 호가 잔량만큼 즉시 체결, 남은 수량은 버려짐(CANCELLED).
+      닿는 호가가 하나도 없으면 422 NO_LIQUIDITY.
+    - price 지정 = 지정가: 남은 수량은 OPEN/PARTIAL 로 대기, 서버가 15분 틱마다 재시도. 취소 전까지 유효.
+    - 주문 1건 = 거래 횟수 1회 (거절된 주문, 틱 체결, 취소는 소모하지 않음)
+    - 주문을 넣는 순간(체결 여부와 무관) 그 종목 30분 락. 틱에서 체결되면 30분을 다시 셈.
+    - 수수료: 체결 금액의 0.015% (매수·매도), 매도 세금 0.20%. 1원 미만 절사.
+      매수는 체결 금액 + 수수료 만큼 현금이 빠지므로 수량 계산 시 수수료를 포함할 것.
+    응답: {orderId, symbol, order_code, price, quantity, filledQuantity, status, fills:[{price, quantity,
+          executedAt}], executedPrice, totalAmount, fee, tax, remainCash, availableCash, remainingTrades,
+          createdAt, executedAt}
+    _request 가 이 함수를 자동 재시도하면 안 됨(중복 주문). 응답이 없으면 get_orders 로 접수 여부를 확인.
     TODO(팀장)"""
     raise NotImplementedError
 
 
 def cancel_order(order_id: int) -> dict:
-    """DELETE /api/orders/{orderId} — OPEN/PARTIAL 만 취소 가능(아니면 422 ORDER_NOT_OPEN). TODO(팀장)"""
+    """DELETE /api/orders/{orderId} — OPEN/PARTIAL 만 취소 가능(아니면 422 ORDER_NOT_OPEN,
+    내 주문이 아니면 404 ORDER_NOT_FOUND). 묶인 현금·주식이 풀림. 거래 횟수를 쓰지 않음.
+    응답은 주문 내역 한 건과 같은 형태(status=CANCELLED). TODO(팀장)"""
     raise NotImplementedError
