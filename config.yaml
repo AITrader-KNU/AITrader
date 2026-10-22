@@ -49,6 +49,8 @@ fees:                         # AQuA API 문서 기준 (토스증권 코스피 �
   sell_tax: 0.002             # 매도 시 증권거래세+농특세 0.20%  → 왕복 약 0.23%
 
 llm:
+  use_llm: false              # false 면 판단 에이전트 대신 임시 규칙(후보 상위 N개 매수) 사용 [팀장]
+  temp_rule_top_n: 3
   model: ""                   # NLP·LLM 담당이 확정
   max_headlines_per_stock: 5
   max_retries: 1

@@ -12,10 +12,22 @@
   - 모든 응답은 JSON, 시각은 ISO-8601 (KST, +09:00).
   - 전체 API 설명은 docs/API.md
 """
+import itertools
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from common.config import env, get_config
+from common.logger import get_logger
 
 BASE_URL = env("AQUA_BASE_URL")
 TEAM_CODE = env("AQUA_TEAM_CODE")
+
+# DRY_RUN: 켜져 있으면 place_order / cancel_order 가 실제 주문을 보내지 않고 로그만 남긴다.
+# .env 에 DRY_RUN=0 이라고 명시한 곳(학교 서버)에서만 실제 주문이 나간다. 값이 없으면 켜진 것으로 본다.
+DRY_RUN = env("DRY_RUN", "1") != "0"
+
+log = get_logger("aqua_client")
+_dry_ids = itertools.count(1)
 
 
 class AquaError(Exception):
@@ -51,6 +63,8 @@ def _request(method: str, path: str, *, params=None, json=None, auth=True) -> di
     - 429 RATE_LIMIT_EXCEEDED: Retry-After 헤더(초)만큼 쉬고 재시도
     - 502 MARKET_DATA_UNAVAILABLE: 몇 초 쉬고 1회 재시도
     - 그 밖의 4xx 는 재시도하지 않고 그대로 raise (특히 주문 API는 자동 재시도 금지 — 중복 주문 위험)
+    - 타임아웃·연결 오류는 requests 예외(requests.RequestException)를 감싸지 말고 그대로 raise
+      (주문 관리자가 이 예외를 보고 주문 내역으로 접수 여부를 확인함)
     - auth=False 인 호출(login, leaderboard)은 토큰 헤더 없이 보냄"""
     raise NotImplementedError
 
@@ -122,17 +136,36 @@ def place_order(symbol: str, side: str, quantity: int, price: int | None = None)
     - 주문 1건 = 거래 횟수 1회 (거절된 주문, 틱 체결, 취소는 소모하지 않음)
     - 주문을 넣는 순간(체결 여부와 무관) 그 종목 30분 락. 틱에서 체결되면 30분을 다시 셈.
     - 수수료: 체결 금액의 0.015% (매수·매도), 매도 세금 0.20%. 1원 미만 절사.
-      매수는 체결 금액 + 수수료 만큼 현금이 빠지므로 수량 계산 시 수수료를 포함할 것.
     응답: {orderId, symbol, order_code, price, quantity, filledQuantity, status, fills:[{price, quantity,
           executedAt}], executedPrice, totalAmount, fee, tax, remainCash, availableCash, remainingTrades,
           createdAt, executedAt}
-    _request 가 이 함수를 자동 재시도하면 안 됨(중복 주문). 응답이 없으면 get_orders 로 접수 여부를 확인.
-    TODO(팀장)"""
-    raise NotImplementedError
+    _request 가 이 함수를 자동 재시도하면 안 됨(중복 주문). 응답이 없으면 호출한 쪽이 get_orders 로 확인.
+    DRY_RUN 이면 주문을 보내지 않고, 전량 체결된 것처럼 꾸민 응답을 돌려준다(orderId 는 음수)."""
+    side = side.upper()
+    if side not in ("BUY", "SELL") or quantity <= 0:
+        raise ValueError(f"잘못된 주문: {side} {quantity}")
+    body = {"symbol": symbol, "order_code": side, "quantity": int(quantity)}
+    if price is not None:
+        body["price"] = int(price)
+
+    if DRY_RUN:
+        log.warning("[DRY_RUN] 주문 안 보냄: %s", body)
+        now = datetime.now(ZoneInfo(get_config()["timezone"])).isoformat(timespec="seconds")
+        return {"orderId": -next(_dry_ids), "symbol": symbol, "order_code": side, "price": price,
+                "quantity": quantity, "filledQuantity": quantity, "status": "FILLED", "fills": [],
+                "executedPrice": price, "totalAmount": None, "fee": None, "tax": None,
+                "remainingTrades": None, "createdAt": now, "executedAt": now, "dryRun": True}
+
+    log.info("주문: %s", body)
+    return _request("POST", "/api/orders", json=body)
 
 
 def cancel_order(order_id: int) -> dict:
     """DELETE /api/orders/{orderId} — OPEN/PARTIAL 만 취소 가능(아니면 422 ORDER_NOT_OPEN,
     내 주문이 아니면 404 ORDER_NOT_FOUND). 묶인 현금·주식이 풀림. 거래 횟수를 쓰지 않음.
-    응답은 주문 내역 한 건과 같은 형태(status=CANCELLED). TODO(팀장)"""
-    raise NotImplementedError
+    응답은 주문 내역 한 건과 같은 형태(status=CANCELLED)."""
+    if DRY_RUN:
+        log.warning("[DRY_RUN] 취소 안 보냄: orderId=%s", order_id)
+        return {"orderId": order_id, "status": "CANCELLED", "dryRun": True}
+    log.info("주문 취소: orderId=%s", order_id)
+    return _request("DELETE", f"/api/orders/{order_id}")

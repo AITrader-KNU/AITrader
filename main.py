@@ -7,7 +7,9 @@
 하루 흐름 (시각은 config.yaml 의 schedule)
   08:00              데이터 갱신 → 후보 선정
   09:30·11:00·13:00  뉴스 수집 → 판단(LLM) → 주문
-  09:00~15:00 15분마다 청산 감시 → 주문
+  09:00~14:45 15분마다 청산 감시 → 주문
+판단 자리는 config llm.use_llm 이 false 인 동안 임시 규칙(order_manager/temp_rule.py)이 대신한다.
+실제 주문은 .env 의 DRY_RUN=0 인 곳(학교 서버)에서만 나간다.
 에이전트끼리는 DB 테이블로만 데이터를 주고받으므로, 여기서는 순서만 정합니다.
 """
 import argparse
@@ -20,7 +22,7 @@ from common.logger import get_logger
 from data_collector import collector
 from exit_monitor import monitor
 from news_judge import judge
-from order_manager import manager
+from order_manager import manager, temp_rule
 
 log = get_logger("main")
 CFG = get_config()
@@ -51,7 +53,10 @@ def premarket_job():
 
 def judge_job():
     collector.collect_news()
-    judge.run()
+    if CFG["llm"]["use_llm"]:
+        judge.run()
+    else:
+        temp_rule.run()     # LLM 연결 전 임시: 후보 상위 N개를 BUY 로 기록
     manager.run()
 
 
