@@ -114,6 +114,7 @@ def test_once_all_with_data_contract_fixtures(monkeypatch, tmp_path):
     monkeypatch.setattr(main.selector, "run", selector_fixture)
     monkeypatch.setattr(main.collector, "collect_news", news_fixture)
     monkeypatch.setattr(main.judge, "run", judge_fixture)
+    monkeypatch.setattr(main.temp_rule, "run", judge_fixture)   # 판단 자리: use_llm 이 false 면 임시 규칙이 불림
     monkeypatch.setattr(main.manager, "run", lambda: events.append("manager"))
     monkeypatch.setattr(main.monitor, "run", lambda: events.append("exit"))
     monkeypatch.setattr(sys, "argv", ["main.py", "--once", "all"])
