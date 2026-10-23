@@ -40,7 +40,7 @@ python -m pytest                   # 테스트
 ## 실행
 
 ```bash
-python main.py                     # 스케줄러 (학교 서버에서 계속 띄워 둠)
+python main.py                     # 스케줄러 (Google Cloud VM에서 계속 띄워 둠)
 python main.py --once premarket    # 장 전 작업만: 일봉 갱신 → 후보 선정
 python main.py --once judge        # 판단 사이클만: 뉴스 수집 → LLM 판단 → 주문
 python main.py --once exit         # 청산 사이클만: 청산 감시 → 주문
@@ -63,7 +63,7 @@ python main.py --once exit         # 청산 사이클만: 청산 감시 → 주�
 
 ## 브랜치 규칙
 
-- `main`: 학교 서버에서 돌아가는 코드. 직접 푸시하지 않습니다.
+- `main`: Google Cloud VM에서 돌아가는 코드. 직접 푸시하지 않습니다.
 - 각자 작업 브랜치(이미 만들어져 있음): `feat/data-collector`, `feat/candidate-selector`, `feat/news-judge`, `feat/order-manager`, `feat/exit-monitor`
 - 작업이 끝나면 Pull Request를 열고, 팀장이 확인한 뒤 `main`에 합칩니다.
 - 합치기 전에 `python main.py --once all`과 `python -m pytest`가 통과하는지 확인합니다.

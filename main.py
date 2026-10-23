@@ -1,4 +1,4 @@
-"""에이전트 진입점 — 학교 서버에서 이 파일 하나를 계속 띄워 둡니다.
+"""에이전트 진입점 — Google Cloud VM 에서 이 파일 하나를 계속 띄워 둡니다.
 
   python main.py              # 스케줄러 실행 (평일 장 시간에 자동으로 돎)
   python main.py --once all   # 지금 바로 전체 흐름을 한 번 돌려 보기 (테스트용)
@@ -9,7 +9,7 @@
   09:30·11:00·13:00  뉴스 수집 → 판단(LLM) → 주문
   09:00~14:45 15분마다 청산 감시 → 주문
 판단 자리는 config llm.use_llm 이 false 인 동안 임시 규칙(order_manager/temp_rule.py)이 대신한다.
-실제 주문은 .env 의 DRY_RUN=0 인 곳(학교 서버)에서만 나간다.
+실제 주문은 .env 의 DRY_RUN=0 인 곳(Google Cloud VM)에서만 나간다.
 에이전트끼리는 DB 테이블로만 데이터를 주고받으므로, 여기서는 순서만 정합니다.
 """
 import argparse

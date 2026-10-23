@@ -23,7 +23,8 @@ API 오류 처리
   TRADE_LIMIT_EXCEEDED  → 요청을 NEW 로 두고 이번 시간 남은 주문 중단(resetAt 이후 재개)
   NO_LIQUIDITY, INSUFFICIENT_CASH, INSUFFICIENT_QUANTITY, UNKNOWN_SYMBOL → SKIPPED + 로그
   MARKET_CLOSED         → 요청을 NEW 로 두고 이번 실행 중단
-  응답 없음(타임아웃 등)  → get_orders 로 접수 여부 확인. 접수됐으면 그 결과로 처리,
+  RATE_LIMIT_EXCEEDED, UNAUTHORIZED → 요청을 NEW 로 둠(서버가 주문을 받지 않음)
+  NETWORK_ERROR(타임아웃 등) → get_orders 로 접수 여부 확인. 접수됐으면 그 결과로 처리,
                           확인이 안 되면 SKIPPED + 로그(중복 주문보다 놓치는 쪽이 안전)
 
 체결 후
@@ -35,8 +36,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-import requests
-
 from common import aqua_client as aqua
 from common.aqua_client import AquaError
 from common.config import get_config
@@ -46,7 +45,10 @@ from common.logger import get_logger
 log = get_logger("order_manager")
 
 KEEP = "KEEP"   # 요청을 NEW 로 남겨 다음 사이클에 다시 처리
-KEEP_CODES = {"SYMBOL_COOLDOWN", "TRADE_LIMIT_EXCEEDED", "MARKET_CLOSED"}   # docs/API.md 에러 표
+# 서버가 주문을 받지 않았고 나중에 다시 하면 되는 오류(docs/API.md 에러 표).
+# RATE_LIMIT_EXCEEDED·UNAUTHORIZED 는 _request 가 주문(POST)을 재시도하지 않으므로 여기서 다음 사이클로 미룬다.
+KEEP_CODES = {"SYMBOL_COOLDOWN", "TRADE_LIMIT_EXCEEDED", "MARKET_CLOSED", "RATE_LIMIT_EXCEEDED", "UNAUTHORIZED"}
+NETWORK_ERROR = "NETWORK_ERROR"   # aqua_client._request: 타임아웃·연결 오류 → 주문 접수 여부를 알 수 없음
 SYMBOL_LOCK_MINUTES = 30   # docs/API.md: 주문을 넣으면 그 종목은 30분간 다시 주문 불가
 REQUEST_TABLES = {"decisions": "decision_id", "sell_requests": "request_id"}   # status 를 바꾸는 테이블
 
@@ -143,7 +145,7 @@ def _find_sent_order(symbol: str, side: str, sent_at: datetime) -> dict | None:
     따라서 지난 30분 안에 만들어진 같은 종목·방향 주문이 있다면 방금 보낸 주문이다."""
     try:
         orders = aqua.get_orders(size=100).get("orders", [])   # size 최대 100(docs/API.md)
-    except (AquaError, requests.RequestException):
+    except AquaError:
         log.exception("주문 내역 조회 실패")
         return None
     since = sent_at - timedelta(minutes=SYMBOL_LOCK_MINUTES)
@@ -160,22 +162,21 @@ def _send(st: State, symbol: str, side: str, qty: int) -> dict | str:
     try:
         resp = aqua.place_order(symbol, side, qty)
     except AquaError as e:
-        if e.code == "TRADE_LIMIT_EXCEEDED":
-            st.stop = True
-        elif e.code == "MARKET_CLOSED":
-            st.stop = True
-        elif e.code == "SYMBOL_COOLDOWN":
-            st.cooldown.add(symbol)
-        if e.code in KEEP_CODES:
-            log.info("%s %s 보류: %s", side, symbol, e.code)
-            return KEEP
-        log.warning("%s %s 거절: %s", side, symbol, e)
-        return STATUS_SKIPPED
-    except requests.RequestException:      # 타임아웃·연결 끊김: 주문이 들어갔는지 알 수 없음
-        log.exception("%s %s 응답 없음 → 주문 내역 확인", side, symbol)
-        resp = _find_sent_order(symbol, side, sent_at)
-        if resp is None:
-            log.error("%s %s 접수 여부 확인 실패 → SKIPPED (수동 확인 필요)", side, symbol)
+        if e.code == NETWORK_ERROR:         # 타임아웃·연결 끊김: 주문이 들어갔는지 알 수 없음
+            log.warning("%s %s 응답 없음 → 주문 내역 확인", side, symbol)
+            resp = _find_sent_order(symbol, side, sent_at)
+            if resp is None:
+                log.error("%s %s 접수 여부 확인 실패 → SKIPPED (수동 확인 필요)", side, symbol)
+                return STATUS_SKIPPED
+        else:
+            if e.code in ("TRADE_LIMIT_EXCEEDED", "MARKET_CLOSED"):
+                st.stop = True
+            elif e.code == "SYMBOL_COOLDOWN":
+                st.cooldown.add(symbol)
+            if e.code in KEEP_CODES:
+                log.info("%s %s 보류: %s", side, symbol, e.code)
+                return KEEP
+            log.warning("%s %s 거절: %s", side, symbol, e)
             return STATUS_SKIPPED
 
     st.cooldown.add(symbol)                 # 주문을 넣은 순간부터 30분 락
@@ -312,13 +313,7 @@ def run(now: datetime | None = None) -> None:
         log.warning("DRY_RUN 켜짐: 실제 주문은 나가지 않음")
 
     with connect() as conn:
-        try:
-            st = _load_state(conn, now)
-        except NotImplementedError:
-            # 임시: 데이터 담당의 aqua_client 조회 함수가 완성되기 전에도 --once all 이 끝까지 돌게 한다
-            # (README 규칙: PR 전 --once all 통과). 조회 함수가 구현되면 이 except 는 지운다.
-            log.warning("aqua_client 조회 함수가 아직 구현 전 → 주문 관리자 건너뜀")
-            return
+        st = _load_state(conn, now)
         ratio_tp = cfg["exit"]["take_profit_sell_ratio"]
 
         # 1) 청산 감시자의 매도 요청

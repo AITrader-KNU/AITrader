@@ -5,7 +5,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
-import requests
 
 from common import aqua_client, db
 from common.aqua_client import AquaError
@@ -207,6 +206,15 @@ def test_trade_limit_stops_and_keeps_new(fake):
     assert len(fake.orders) == 1
 
 
+@pytest.mark.parametrize("code,status_code", [("RATE_LIMIT_EXCEEDED", 429), ("UNAUTHORIZED", 401)])
+def test_not_accepted_errors_keep_new(fake, code, status_code):
+    """서버가 주문을 받지 않은 오류는 다음 사이클에 다시 처리(_request 는 주문을 재시도하지 않음)"""
+    fake.fail["005930"] = AquaError(status_code, code)
+    did = add_decision("005930")
+    manager.run(T_1000)
+    assert status("decisions", "decision_id", did) == "NEW"
+
+
 def test_rejected_order_is_skipped(fake):
     fake.fail["005930"] = AquaError(422, "NO_LIQUIDITY")
     did = add_decision("005930")
@@ -226,7 +234,7 @@ def test_timeout_but_accepted_is_recorded(fake):
     fake.orders.append({"orderId": 99, "symbol": "005930", "order_code": "BUY", "quantity": 10,
                        "filledQuantity": 10, "status": "FILLED", "executedPrice": 10_000,
                        "createdAt": T_1000.isoformat(), "accepted": True})
-    fake.fail["005930"] = requests.Timeout()
+    fake.fail["005930"] = AquaError(0, "NETWORK_ERROR")
     did = add_decision("005930")
     manager.run(T_1000)
     assert status("decisions", "decision_id", did) == "DONE"
@@ -234,7 +242,7 @@ def test_timeout_but_accepted_is_recorded(fake):
 
 
 def test_timeout_not_found_is_skipped(fake):
-    fake.fail["005930"] = requests.Timeout()
+    fake.fail["005930"] = AquaError(0, "NETWORK_ERROR")
     did = add_decision("005930")
     manager.run(T_1000)
     assert status("decisions", "decision_id", did) == "SKIPPED"
