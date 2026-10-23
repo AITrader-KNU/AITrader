@@ -64,3 +64,14 @@ db:
 log:
   dir: logs
   level: INFO
+
+news:
+  lookback_days: 3
+  request_timeout_seconds: 20
+  request_interval_seconds: 1
+  aliases:
+    "000660": ["SK하이닉스", "SK 하이닉스"]
+    "005380": ["현대차", "현대자동차"]
+    "035420": ["NAVER", "네이버"]
+  match_exclusions:
+    "005380": ["현대차증권"]  # 이 문구만으로 현대차 기사로 연결하지 않음
