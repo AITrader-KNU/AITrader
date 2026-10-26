@@ -15,15 +15,20 @@ schedule:
 universe:
   liquidity_top_n: 300        # 20일 평균 (종가×거래량) 상위 N개          [전략]
   liquidity_window: 20
+  max_daily_move: 0.30        # 하루 ±30% 넘는 봉이 있으면 데이터 오류·분할 의심 → 제외   [전략]
 
 candidates:
   top_n: 15                   # 하루 후보 수                              [전략]
   ma_window: 20               # 추세 조건: 종가 > 20일 이동평균
   require_rising_ma: false    # 20일선이 올라가는 중인지도 볼지
+  ma_slope_days: 5            # require_rising_ma 가 true 일 때 20일선 비교 간격
+  rank_among: all             # 모멘텀 순위를 매기는 풀: all(유동성 상위 전체) / trend(추세 통과 종목끼리)
   momentum:
     lookback_days: 120        # 모멘텀 계산 기간
     skip_recent_days: 20      # 최근 1달 제외
     high_window_days: 250     # 52주 고가 근접도
+    weight_return: 0.5        # 점수 = weight_return × 수익률 순위 + weight_high × 고점 근접도 순위   [전략]
+    weight_high: 0.5
   overheat:
     max_ret_5d: 0.15          # 최근 5일 +15% 초과 시 제외                [전략]
     max_ret_1d: 0.08          # 당일 +8% 초과 시 제외
