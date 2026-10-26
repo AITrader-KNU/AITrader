@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from common import db as dbm
-from exit_monitor import exit_monitor as em
+from exit_monitor import monitor as em
 
 KST = ZoneInfo("Asia/Seoul")
 FRI = datetime(2026, 10, 23, 10, 0, tzinfo=KST)      # 금

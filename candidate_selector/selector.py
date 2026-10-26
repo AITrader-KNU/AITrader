@@ -10,11 +10,11 @@
   ret_120d = close[t-skip] / close[t-skip-lookback] - 1   (t = 마지막 봉)
   rank = 풀 안에서의 백분위(0~1, 클수록 좋음)
 
-config 에 없으면 아래 기본값을 씁니다(추가를 권장):
-  universe.max_daily_move        (0.30)  하루 ±30% 넘는 봉이 있는 종목은 데이터 오류/분할 의심 → 제외
-  candidates.rank_among          ("all") 순위를 매기는 풀: "all"=유동성 상위 전체, "trend"=추세 통과 종목끼리
-  candidates.momentum.weight_return / weight_high   (0.5 / 0.5)
-  candidates.ma_slope_days       (5)     require_rising_ma 가 true 일 때 20일선 비교 간격
+config.yaml 에서 읽는 추가 항목:
+  universe.max_daily_move        하루 변동폭이 이 값을 넘는 봉이 있으면 데이터 오류/분할 의심 → 제외
+  candidates.rank_among          순위를 매기는 풀: "all"=유동성 상위 전체, "trend"=추세 통과 종목끼리
+  candidates.momentum.weight_return / weight_high   점수 가중치
+  candidates.ma_slope_days       require_rising_ma 가 true 일 때 20일선 비교 간격
 """
 from __future__ import annotations
 
@@ -64,10 +64,10 @@ def compute(df: pd.DataFrame, cfg: dict) -> tuple[pd.DataFrame, dict]:
     lb, skip, hiw = mom["lookback_days"], mom["skip_recent_days"], mom["high_window_days"]
     maw, liq_w = c["ma_window"], cfg["universe"]["liquidity_window"]
     liq_n, top_n = cfg["universe"]["liquidity_top_n"], c["top_n"]
-    max_move = cfg["universe"].get("max_daily_move", 0.30)
-    rank_among = c.get("rank_among", "all")
-    w_ret, w_high = mom.get("weight_return", 0.5), mom.get("weight_high", 0.5)
-    slope = c.get("ma_slope_days", 5)
+    max_move = cfg["universe"]["max_daily_move"]
+    rank_among = c["rank_among"]
+    w_ret, w_high = mom["weight_return"], mom["weight_high"]
+    slope = c["ma_slope_days"]
 
     need = max(lb + skip + 1, hiw, liq_w, maw + (slope if c.get("require_rising_ma") else 0), 6)
     funnel = {"symbols": int(df["symbol"].nunique()) if len(df) else 0}
