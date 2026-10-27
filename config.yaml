@@ -45,6 +45,14 @@ exit:
   max_holding_days: 5         # 매수 후 N거래일 지나면 정리
   # 악재 매도는 여기서 다루지 않음: 판단 에이전트가 decisions에 SELL을 내면 주문 관리자가 매도(A안)
 
+review:                       # 매주 금요일 청산 규칙 점검 기준(tools/exit_review.py). 결과를 보기 전에 정해 둔 값  [전략]
+  min_cases: 5                # 해당 매도가 이 건수 미만이면 판단 보류(사례가 적으면 우연과 구분 불가)
+  window_days: 5              # 매도 후 며칠(거래일) 동안의 종가를 볼지 — 최대 보유일과 같은 1주
+  recovery_ratio: 0.5         # 손절 종목 중 이 비율 이상이 매수가 위로 회복하면 '손절이 너무 좁다'
+  stop_fill_limit: -0.05      # 손절 거래 평균 손익(비용 제외)이 이보다 나쁘면 '체결이 너무 밀린다'
+  tp_extra: 0.10              # 익절 종목이 매수가 대비 이 수익을 넘으면 '추가 상승'
+  tp_extra_ratio: 0.5         # 익절 종목 중 이 비율 이상이 추가 상승하면 '익절이 너무 이르다'
+
 order:
   buy_type: market            # [팀장] 호가 잔량 확인 후 시장가
   sell_type: market
