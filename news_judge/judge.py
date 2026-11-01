@@ -51,7 +51,8 @@ def call_gemini_api(prompt: str, model_name: str, api_key: str) -> Dict[str, Any
         "systemInstruction": {"parts": [{"text": SYSTEM_INSTRUCTION}]},
         "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}
     }
-    response = requests.post(url, headers=headers, json=payload, timeout=30)
+    timeout = get_config().get("llm", {}).get("timeout_seconds", 30)   # 응답 대기(초), config.yaml llm.timeout_seconds
+    response = requests.post(url, headers=headers, json=payload, timeout=timeout)
     if response.status_code != 200:
         raise Exception(f"HTTP {response.status_code}: {response.text}")
     res_json = response.json()

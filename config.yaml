@@ -64,9 +64,10 @@ fees:                         # AQuA API 문서 기준 (토스증권 코스피 �
 llm:
   use_llm: true               # false 면 판단 에이전트 대신 임시 규칙(후보 상위 N개 매수) 사용 [팀장]
   temp_rule_top_n: 3
-  model: gemini-3.8-flash     # NLP·LLM 담당 확정(10/19 진행 요약)
+  model: gemini-3.5-flash     # 11/2 VM 실측: 3.8-flash 는 짧은 질문도 13.8초~120초 초과, 3.5-flash 2.2초 → 응답 안정성 우선
   max_headlines_per_stock: 5
   max_retries: 1
+  timeout_seconds: 120        # Gemini 응답 대기. 짧은 질문도 13.8초(11/2 VM 실측), 실제 판단은 입력이 커서 더 걸림
 
 api:
   max_calls_per_minute: 80    # AQuA 한도 100회보다 여유 있게
