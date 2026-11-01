@@ -4,7 +4,6 @@
 쓰는 테이블: decisions (종목마다 한 행, status='NEW')
 """
 import json
-import sqlite3
 import requests
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Set
@@ -43,8 +42,10 @@ def get_current_kst_iso() -> str:
 
 def call_gemini_api(prompt: str, model_name: str, api_key: str) -> Dict[str, Any]:
     clean_model = model_name.replace("models/", "")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
+    # API 키는 URL 이 아니라 헤더로 보낸다(Gemini API 문서의 x-goog-api-key 방식).
+    # URL 에 넣으면 타임아웃 등 requests 오류 메시지에 URL 이 키째로 담겨 로그에 남는다.
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent"
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "systemInstruction": {"parts": [{"text": SYSTEM_INSTRUCTION}]},
@@ -86,12 +87,16 @@ def run() -> None:
     log.info("news_judge.run: 실행 시작")
     config = get_config()
     llm_cfg = config.get("llm", {})
-    model_name = llm_cfg.get("model", "gemini-3.8-flash")
+    model_name = llm_cfg.get("model")
+    max_retries = llm_cfg.get("max_retries", 1)
     max_headlines = llm_cfg.get("max_headlines_per_stock", 5)
     api_key = env("GEMINI_API_KEY")
 
     if not api_key:
         log.error("news_judge.run: GEMINI_API_KEY가 없어 실행을 중단합니다.")
+        return
+    if not model_name:
+        log.error("news_judge.run: config.yaml 의 llm.model 이 비어 있어 실행을 중단합니다.")
         return
 
     run_at = get_current_kst_iso()
@@ -137,7 +142,7 @@ def run() -> None:
     for s in stocks_payload:
         held_label = "【현재 보유 중】" if s["is_held"] else "【미보유 후보】"
         ret_str = f"{s['ret_5d'] * 100:+.2f}%" if s["ret_5d"] is not None else "정보 없음"
-        ma_str = "20일선 위" if s["above_ma20"] else "20일선 아래"
+        ma_str = "정보 없음" if s["above_ma20"] is None else ("20일선 위" if s["above_ma20"] else "20일선 아래")
         prompt += f"■ {held_label} {s['name']} ({s['symbol']})\n  - 5일 수익률: {ret_str}, 추세: {ma_str}\n  - 최근 뉴스:\n"
         if s["news"]:
             for n in s["news"]:
@@ -149,16 +154,19 @@ def run() -> None:
     prompt += "[출력 형식]\nJSON 리스트로만 반환하십시오:\n[\n  {\n    \"symbol\": \"종목코드\", \"action\": \"BUY | WAIT | SELL\", \"bad_news\": true 또는 false, \"reason\": \"근거\", \"risks\": [], \"news_ids\": []\n  }\n]\n"
 
     parsed_results = {}
-    try:
-        call_res = call_gemini_api(prompt, model_name, api_key)
-        log.info(f"news_judge.run: 토큰 사용량 - 입력: {call_res['prompt_tokens']}, 출력: {call_res['candidates_tokens']}")
-        raw_list = json.loads(call_res["text"])
-        if isinstance(raw_list, list):
-            for item in raw_list:
-                if isinstance(item, dict) and "symbol" in item:
-                    parsed_results[item["symbol"]] = item
-    except Exception as e:
-        log.error(f"news_judge.run: LLM 호출 에러 ({e}) -> Fallback 적용")
+    for attempt in range(max_retries + 1):          # 오류 시 llm.max_retries 번 재시도 후 전부 WAIT
+        try:
+            call_res = call_gemini_api(prompt, model_name, api_key)
+            log.info(f"news_judge.run: 토큰 사용량 - 입력: {call_res['prompt_tokens']}, 출력: {call_res['candidates_tokens']}")
+            raw_list = json.loads(call_res["text"])
+            if isinstance(raw_list, list):
+                for item in raw_list:
+                    if isinstance(item, dict) and "symbol" in item:
+                        parsed_results[item["symbol"]] = item
+            break
+        except Exception as e:
+            log.error(f"news_judge.run: LLM 호출 에러 ({type(e).__name__}: {e}) -> "
+                      f"{'재시도' if attempt < max_retries else 'Fallback(WAIT) 적용'}")
 
     final_decisions = []
     for s in stocks_payload:
