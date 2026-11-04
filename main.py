@@ -22,7 +22,7 @@ from common.logger import get_logger
 from data_collector import collector
 from exit_monitor import monitor
 from news_judge import judge
-from order_manager import manager, temp_rule
+from order_manager import decision_prices, manager, temp_rule
 
 log = get_logger("main")
 CFG = get_config()
@@ -57,6 +57,7 @@ def judge_job():
         judge.run()
     else:
         temp_rule.run()     # LLM 연결 전 임시: 후보 상위 N개를 BUY 로 기록
+    decision_prices.run()   # 판단 직후 현재가 기록(분석용). 실패해도 예외를 내지 않아 주문은 그대로 진행
     manager.run()
 
 
