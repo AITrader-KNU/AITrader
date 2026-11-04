@@ -231,9 +231,11 @@ def test_orderbook_error_does_not_stop_others(fake):
 
 def test_timeout_but_accepted_is_recorded(fake):
     """응답은 못 받았지만 실제로 접수된 주문 → 주문 내역에서 찾아 DONE 처리(다시 주문하지 않음)"""
+    # 접수 확인은 실제 현재 시각 기준 30분 안의 주문을 찾으므로(_find_sent_order), 접수 시각도 지금으로 둔다.
+    # T_1000 으로 고정하면 테스트를 2026-11-02 10:30 이후에 돌릴 때 실패한다.
     fake.orders.append({"orderId": 99, "symbol": "005930", "order_code": "BUY", "quantity": 10,
                        "filledQuantity": 10, "status": "FILLED", "executedPrice": 10_000,
-                       "createdAt": T_1000.isoformat(), "accepted": True})
+                       "createdAt": datetime.now(KST).isoformat(), "accepted": True})
     fake.fail["005930"] = AquaError(0, "NETWORK_ERROR")
     did = add_decision("005930")
     manager.run(T_1000)
