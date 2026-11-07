@@ -1,4 +1,4 @@
-"""SQLite DB — 에이전트끼리는 이 7개 테이블로만 데이터를 주고받습니다(decision_prices 는 분석용 기록).
+"""SQLite DB — 기존 매매 테이블과 공시 수집 테이블(decision_prices 는 분석용 기록).
 
 테이블          쓰는 쪽               읽는 쪽
 daily_candles   4-1 데이터 수집기      4-2 후보 선정기
@@ -9,6 +9,8 @@ sell_requests   4-5 청산 감시자        4-4 주문 관리자
 positions_meta  4-4 주문 관리자        4-5 청산 감시자
 orders_log      4-4 주문 관리자        점검·분석
 decision_prices 4-4 주문 관리자        점검·분석 (판단 직후 현재가, 규칙 vs LLM 비교용. 매매에는 안 씀)
+corp_codes     4-1 공시 수집기        4-1 공시 수집기 (종목코드→DART 고유번호)
+disclosures    4-1 공시 수집기        판단·주문 연결 예정 (현재 수집만 구현)
 
 요청 테이블(decisions, sell_requests)의 status 는 주문 관리자만 바꿉니다.
 positions_meta 에는 지금 보유 중인 종목만 남기고, 전량 매도하면 지웁니다.
@@ -108,6 +110,23 @@ CREATE TABLE IF NOT EXISTS decision_prices (
     price_time  TEXT,                   -- AQuA 가 준 현재가 timestamp
     recorded_at TEXT NOT NULL           -- 기록한 시각 (KST)
 );
+
+CREATE TABLE IF NOT EXISTS corp_codes (
+    symbol      TEXT PRIMARY KEY,
+    corp_code   TEXT NOT NULL,
+    corp_name   TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS disclosures (
+    rcept_no     TEXT PRIMARY KEY,
+    symbol       TEXT NOT NULL,
+    report_nm    TEXT NOT NULL,
+    rcept_dt     TEXT NOT NULL,         -- YYYY-MM-DD (DART YYYYMMDD를 정규화)
+    collected_at TEXT NOT NULL          -- 최초 관측 ISO 8601 KST, 마이크로초 보존
+);
+CREATE INDEX IF NOT EXISTS idx_disclosures_symbol_date
+    ON disclosures (symbol, rcept_dt, collected_at);
 """
 
 
