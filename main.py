@@ -5,8 +5,8 @@
   python main.py --once premarket | judge | exit
 
 하루 흐름 (시각은 config.yaml 의 schedule)
-  08:00              데이터 갱신 → 후보 선정
-  09:30·11:00·13:00  뉴스 수집 → 판단(LLM) → 주문
+  08:00              데이터 갱신 → 후보 선정 → 시장 국면 판정
+  09:30·11:00·13:00  뉴스 수집 → 공시 수집 → 판단(LLM) → 판단 시점 가격 기록 → 주문
   09:00~14:45 15분마다 청산 감시 → 주문
 판단 자리는 config llm.use_llm 이 false 인 동안 임시 규칙(order_manager/temp_rule.py)이 대신한다.
 실제 주문은 .env 의 DRY_RUN=0 인 곳(Google Cloud VM)에서만 나간다.
@@ -19,8 +19,9 @@ from candidate_selector import selector
 from common.config import get_config
 from common.db import init_db
 from common.logger import get_logger
-from data_collector import collector
+from data_collector import collector, disclosure
 from exit_monitor import monitor
+from market_regime import regime
 from news_judge import judge
 from order_manager import decision_prices, manager, temp_rule
 
@@ -46,13 +47,23 @@ def _safe(step):
     return wrapper
 
 
+def _optional(step, what: str) -> None:
+    """실패해도 그 작업의 나머지(후보 선정·판단·주문)는 계속하는 보조 단계."""
+    try:
+        step()
+    except Exception:
+        log.exception("%s 실패 — 이 단계 없이 계속", what)
+
+
 def premarket_job():
     collector.update_daily_candles()
     selector.run()
+    _optional(regime.run, "시장 국면 판정")   # 후보는 이미 저장됨. 실패하면 주문 관리자가 default_when_missing 사용
 
 
 def judge_job():
     collector.collect_news()
+    _optional(disclosure.run, "공시 수집")     # disclosure.run 은 원래 예외를 내지 않지만 한 번 더 감쌈
     if CFG["llm"]["use_llm"]:
         judge.run()
     else:

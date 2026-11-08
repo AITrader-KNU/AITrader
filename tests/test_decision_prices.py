@@ -70,9 +70,10 @@ def test_judge_job_records_prices_before_orders(monkeypatch):
     import main
     order = []
     monkeypatch.setattr(main.collector, "collect_news", lambda: order.append("news"))
+    monkeypatch.setattr(main.disclosure, "run", lambda: order.append("disclosure"))
     monkeypatch.setattr(main.judge, "run", lambda: order.append("judge"))
     monkeypatch.setattr(main.temp_rule, "run", lambda: order.append("judge"))
     monkeypatch.setattr(main.decision_prices, "run", lambda: order.append("prices"))
     monkeypatch.setattr(main.manager, "run", lambda: order.append("orders"))
     main.judge_job()
-    assert order == ["news", "judge", "prices", "orders"]
+    assert order == ["news", "disclosure", "judge", "prices", "orders"]

@@ -10,7 +10,8 @@ positions_meta  4-4 주문 관리자        4-5 청산 감시자
 orders_log      4-4 주문 관리자        점검·분석
 decision_prices 4-4 주문 관리자        점검·분석 (판단 직후 현재가, 규칙 vs LLM 비교용. 매매에는 안 씀)
 corp_codes     4-1 공시 수집기        4-1 공시 수집기 (종목코드→DART 고유번호)
-disclosures    4-1 공시 수집기        판단·주문 연결 예정 (현재 수집만 구현)
+disclosures    4-1 공시 수집기        4-3 판단 에이전트(프롬프트), 4-4 주문 관리자(매수 차단)
+market_regime  시장 국면 판정         4-4 주문 관리자 (주식 비중 상한)
 
 요청 테이블(decisions, sell_requests)의 status 는 주문 관리자만 바꿉니다.
 positions_meta 에는 지금 보유 중인 종목만 남기고, 전량 매도하면 지웁니다.
@@ -127,6 +128,16 @@ CREATE TABLE IF NOT EXISTS disclosures (
 );
 CREATE INDEX IF NOT EXISTS idx_disclosures_symbol_date
     ON disclosures (symbol, rcept_dt, collected_at);
+
+CREATE TABLE IF NOT EXISTS market_regime (
+    run_date         TEXT PRIMARY KEY,   -- 이 국면을 적용하는 날짜
+    regime           TEXT NOT NULL CHECK (regime IN ('up', 'sideways', 'down')),
+    index_close      REAL,               -- 판정에 쓴 마지막 날(run_date 이전)의 대용 지수
+    ma_short         REAL,
+    ma_long          REAL,
+    max_equity_ratio REAL NOT NULL,      -- 그날의 주식 비중 상한(예: 0.6)
+    created_at       TEXT NOT NULL       -- ISO-8601 KST
+);
 """
 
 
