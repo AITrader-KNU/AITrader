@@ -90,10 +90,23 @@ news:
   match_exclusions:
     "005380": ["현대차증권"]  # 이 문구만으로 현대차 기사로 연결하지 않음
 
-disclosure:                   # 수집 설정. main 연결·매수 차단·LLM 입력은 별도 담당
+disclosure:                   # 수집(data_collector/disclosure.py) + LLM 입력(news_judge) + 매수 차단(order_manager)
   enabled: true
   lookback_days: 5             # 오늘 포함 달력 5일
   request_timeout_seconds: 10
   request_interval_seconds: 1
   corp_refresh_days: 7
   max_pages: 100               # 초과 시 해당 종목 실패 처리, 일부만 저장하지 않음
+  max_per_stock: 5             # 판단 프롬프트에 넣을 종목당 최근 공시 수
+  block_buy_days: 5            # 차단 목록 공시가 오늘 포함 달력 N일 안에 있으면 매수하지 않음 (주문 관리자)
+  block_keywords: ["관리종목", "상장폐지", "매매거래정지", "횡령", "배임", "불성실공시", "감사의견", "유상증자결정"]
+                               # 공시 제목(report_nm)에 이 문구가 있으면 LLM 판단과 상관없이 매수 차단. 해석이 갈리는 공시는 LLM 에 맡김
+
+regime:                       # 시장 국면(market_regime/regime.py) → 주식 비중 상한(order_manager)   [전략]
+  enabled: true               # false 면 상한 없이 기존처럼 매수 (국면 판정·기록은 계속)
+  top_n: 200                  # 대용 지수 종목 수: 전일까지 20일 평균 거래대금 상위 N (KODEX 200 일봉을 못 받아 동일 가중 지수로 대신)
+  min_stocks: 150             # 그날 유효 종목이 이보다 적으면 그날은 지수에서 뺌
+  ma_short: 20
+  ma_long: 60
+  max_equity_ratio: {up: 0.9, sideways: 0.6, down: 0.3}   # 설계 초깃값. 종목당 15% 기준 6·4·2종목
+  default_when_missing: sideways   # 그날 국면 기록이 없을 때(서버 장애 등) 쓸 값

@@ -1,9 +1,10 @@
 """4-3 뉴스 분석·판단 에이전트 (LLM) — 담당: NLP·LLM
 
-읽는 것: candidates, news 테이블, 포트폴리오(보유 종목)
+읽는 것: candidates, news, disclosures(DART 공시) 테이블, positions_meta(보유 종목)
 쓰는 테이블: decisions (종목마다 한 행, status='NEW')
 """
 import json
+import sqlite3
 import requests
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Set
@@ -34,7 +35,9 @@ SYSTEM_INSTRUCTION = """
 3. 보유 중인 종목:
    - [필수 규칙] 보유 중인 종목에 확인된 악재(소송, 유상증자, 횡령, 실적 쇼크 등)가 발생한 경우, 반드시 action을 SELL로 내리고 bad_news를 true로 설정하십시오.
    - 특별한 악재가 없거나 상승 추세가 유지된다면 WAIT(홀딩 유지)로 판단하십시오.
-4. 출력 형식: 반드시 마크다운 기호 없이 순수 JSON 리스트 포맷으로만 출력하십시오.
+4. 공시 우선: '최근 공시'는 회사가 금융감독원 DART 에 직접 낸 공식 자료이므로 뉴스보다 신뢰도가 높은 근거로 보십시오.
+   뉴스가 호재여도 유상증자·소송·횡령·감사의견 등 악재 공시가 있으면 악재로 판단하십시오. 근거로 쓴 공시는 news_ids 에 "D:접수번호" 형식으로 넣으십시오.
+5. 출력 형식: 반드시 마크다운 기호 없이 순수 JSON 리스트 포맷으로만 출력하십시오.
 """
 
 def get_current_kst_iso() -> str:
@@ -65,6 +68,29 @@ def call_gemini_api(prompt: str, model_name: str, api_key: str) -> Dict[str, Any
         "total_tokens": usage_metadata.get("totalTokenCount", 0)
     }
 
+def _recent_disclosures(cursor, symbol: str, run_at: str, limit: int) -> List[Dict[str, Any]]:
+    """판단 시각 이전에 수집된 최근 공시(미래 정보 차단: collected_at <= run_at).
+
+    공시 접수일(rcept_dt)에는 시각이 없어서 수집 시각으로 '판단 시점에 알 수 있었는지'를 가린다.
+    collected_at 은 마이크로초까지, run_at 은 초 단위(소수점 버림)라 문자열이 아니라 시각으로 비교하고,
+    run_at 이 실제 시각보다 최대 1초 이르게 적혀 있으므로 run_at + 1초 미만까지 포함한다
+    (공시 수집은 판단 시작 전에 끝나므로 같은 초에 수집된 공시도 판단 전에 이미 있던 것).
+    disclosures 테이블이 없거나(공시 수집 전 DB) 조회가 실패하면 공시 없이 판단한다.
+    """
+    if limit <= 0:
+        return []
+    try:
+        cutoff = datetime.fromisoformat(run_at) + timedelta(seconds=1)
+        cursor.execute("""
+            SELECT rcept_no, report_nm, rcept_dt, collected_at FROM disclosures
+            WHERE symbol = ? ORDER BY rcept_dt DESC, rcept_no DESC
+        """, (symbol,))
+        rows = [r for r in cursor.fetchall() if datetime.fromisoformat(r[3]) < cutoff]
+        return [{"rcept_no": r[0], "report_nm": r[1], "rcept_dt": r[2]} for r in rows[:limit]]
+    except (sqlite3.Error, ValueError) as e:
+        log.warning(f"news_judge.run: 공시 조회 실패({type(e).__name__}) — {symbol} 은 공시 없이 판단")
+        return []
+
 def validate_decision_item(item: Any, symbol: str) -> Dict[str, Any]:
     required_fields = ["symbol", "action", "bad_news", "reason", "risks", "news_ids"]
     if not isinstance(item, dict):
@@ -91,6 +117,8 @@ def run() -> None:
     model_name = llm_cfg.get("model")
     max_retries = llm_cfg.get("max_retries", 1)
     max_headlines = llm_cfg.get("max_headlines_per_stock", 5)
+    dc = config.get("disclosure") or {}
+    max_disclosures = dc.get("max_per_stock", 5) if dc.get("enabled", False) else 0   # 0 이면 프롬프트에 공시를 넣지 않음
     api_key = env("GEMINI_API_KEY")
 
     if not api_key:
@@ -136,7 +164,8 @@ def run() -> None:
             stocks_payload.append({
                 "symbol": symbol, "name": info["name"], "is_held": info["is_held"],
                 "ret_5d": info["ret_5d"], "above_ma20": info["above_ma20"],
-                "news": [{"news_id": r[0], "title": r[1], "published_at": r[2]} for r in news_rows]
+                "news": [{"news_id": r[0], "title": r[1], "published_at": r[2]} for r in news_rows],
+                "disclosures": _recent_disclosures(cursor, symbol, run_at, max_disclosures),
             })
 
     prompt = f"기준 시각: {run_at}\n\n아래 대상 종목들의 상태와 최근 뉴스를 분석하여 매수·관망·매도를 판단하십시오:\n\n"
@@ -150,6 +179,12 @@ def run() -> None:
                 prompt += f"    * [{n['news_id']}] {n['title']} ({n['published_at']})\n"
         else:
             prompt += "    * (관련 뉴스 없음)\n"
+        if max_disclosures:
+            prompt += "  - 최근 공시(DART):\n"
+            for d in s["disclosures"]:
+                prompt += f"    * [D:{d['rcept_no']}] {d['report_nm']} ({d['rcept_dt']})\n"
+            if not s["disclosures"]:
+                prompt += "    * (최근 공시 없음)\n"
         prompt += "\n"
 
     prompt += "[출력 형식]\nJSON 리스트로만 반환하십시오:\n[\n  {\n    \"symbol\": \"종목코드\", \"action\": \"BUY | WAIT | SELL\", \"bad_news\": true 또는 false, \"reason\": \"근거\", \"risks\": [], \"news_ids\": []\n  }\n]\n"

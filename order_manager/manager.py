@@ -1,7 +1,7 @@
 """4-4 주문·리스크 관리자 — 담당: 팀장
 
 실제 주문을 내는 곳은 여기 하나뿐입니다.
-읽는 테이블: sell_requests, decisions (status='NEW' 만)
+읽는 테이블: sell_requests, decisions (status='NEW' 만), market_regime(오늘 주식 비중 상한), disclosures(매수 차단)
 쓰는 테이블: orders_log, positions_meta, 그리고 처리한 요청의 status 를 DONE / SKIPPED 로 변경
 
 처리 순서
@@ -11,8 +11,17 @@
   4) decisions 의 WAIT(NEW)           → 바로 SKIPPED
 
 매수 검사 (하나라도 걸리면 SKIPPED)
-  buy_cutoff(14:00) 이전 / bad_news 아님 / 이미 보유한 종목 아님 / 보유 max_positions 미만 /
-  남은 거래 횟수 있음 / 수량 1주 이상 (plan_market_buy: 비중 상한·availableCash·호가 잔량·수수료 반영)
+  buy_cutoff(14:00) 이전 / bad_news 아님 / 차단 목록 공시 없음 / 이미 보유한 종목 아님 / 보유 max_positions 미만 /
+  남은 거래 횟수 있음 / 수량 1주 이상 (plan_market_buy: 비중 상한·availableCash·시장 국면 상한·호가 잔량·수수료 반영)
+
+시장 국면 상한 (config regime, 설계 11월 계획 1절)
+  예산 = min(총자산 × max_weight_per_stock, availableCash, 총자산 × 주식 비중 상한 − 주식 평가액)
+  주식 평가액 = 총자산 − availableCash (시장가만 쓰므로 대기 주문으로 묶인 현금이 없음)
+  상한 = 오늘 market_regime 행의 max_equity_ratio, 행이 없으면 regime.default_when_missing 의 값
+  regime.enabled 가 false 면 상한 없음. 강제 매도는 하지 않고 신규 매수만 줄인다.
+
+공시 차단 (config disclosure, 설계 11월 계획 2절)
+  오늘 포함 달력 block_buy_days 일 안에 접수된 공시 제목에 block_keywords 가 있으면 LLM 판단과 상관없이 매수하지 않음
 
 오래된 요청
   같은 종목의 NEW decisions 가 여러 개면 가장 최근 것만 처리하고 나머지는 SKIPPED
@@ -92,6 +101,7 @@ class State:
     remaining_trades: int
     cooldown: set = field(default_factory=set)
     stop: bool = False      # 거래 횟수 소진·장 마감 등으로 이번 실행의 주문을 멈춤
+    equity_cap: float | None = None   # 오늘 주식 비중 상한(0~1). None 이면 상한 없음(regime.enabled false)
 
 
 def _hhmm(s: str) -> time:
@@ -120,7 +130,37 @@ def _load_state(conn, now: datetime) -> State:
 
     remaining = min(int(lim.get("remainingTrades", 0)), cfg["risk"]["internal_trade_limit_per_hour"])
     return State(now=now, total_asset=int(pf["totalAssetValue"]), available_cash=int(pf["availableCash"]),
-                 holdings=holdings, held=set(holdings) | meta, remaining_trades=remaining, cooldown=cooldown)
+                 holdings=holdings, held=set(holdings) | meta, remaining_trades=remaining, cooldown=cooldown,
+                 equity_cap=_equity_cap(conn, now, cfg))
+
+
+def _equity_cap(conn, now: datetime, cfg: dict) -> float | None:
+    """오늘 주식 비중 상한. 국면 판정(market_regime/regime.py)이 08:00 에 쓴 행을 읽는다."""
+    r = cfg.get("regime") or {}
+    if not r.get("enabled", False):
+        return None
+    row = conn.execute("SELECT regime, max_equity_ratio FROM market_regime WHERE run_date = ?",
+                       (now.date().isoformat(),)).fetchone()
+    if row is None:
+        cap = float(r["max_equity_ratio"][r["default_when_missing"]])
+        log.warning("오늘 시장 국면 기록 없음 → %s 상한 %.0f%% 사용", r["default_when_missing"], cap * 100)
+        return cap
+    log.info("오늘 시장 국면 %s → 주식 비중 상한 %.0f%%", row["regime"], row["max_equity_ratio"] * 100)
+    return float(row["max_equity_ratio"])
+
+
+def _blocking_disclosure(conn, symbol: str, now: datetime, cfg: dict) -> str | None:
+    """차단 목록 문구가 든 최근 공시 제목. 없으면 None. 수집되지 않았거나 설정이 꺼져 있으면 차단하지 않음."""
+    dc = cfg.get("disclosure") or {}
+    keywords = dc.get("block_keywords") or []
+    if not dc.get("enabled", False) or not keywords:
+        return None
+    since = (now.date() - timedelta(days=dc["block_buy_days"] - 1)).isoformat()
+    for r in conn.execute("SELECT report_nm FROM disclosures WHERE symbol = ? AND rcept_dt >= ? ORDER BY rcept_dt DESC",
+                          (symbol, since)):
+        if any(k in r["report_nm"] for k in keywords):
+            return r["report_nm"]
+    return None
 
 
 def _set_status(conn, table: str, rid: int, status: str) -> None:
@@ -236,6 +276,9 @@ def _buy(conn, st: State, d) -> str:
         return STATUS_SKIPPED
     if d["bad_news"]:
         return STATUS_SKIPPED
+    if (title := _blocking_disclosure(conn, symbol, st.now, cfg)):
+        log.info("BUY %s: 차단 공시 '%s' → SKIPPED", symbol, title)
+        return STATUS_SKIPPED
     if symbol in st.held:
         return STATUS_SKIPPED
     if len(st.held) >= cfg["risk"]["max_positions"]:
@@ -244,6 +287,13 @@ def _buy(conn, st: State, d) -> str:
         return blocked
 
     budget = min(int(st.total_asset * cfg["risk"]["max_weight_per_stock"]), st.available_cash)
+    if st.equity_cap is not None:
+        room = int(st.total_asset * st.equity_cap) - (st.total_asset - st.available_cash)
+        if room < budget:
+            log.info("BUY %s: 시장 국면 상한 %.0f%% → 예산 %d원에서 %d원으로", symbol, st.equity_cap * 100, budget, max(room, 0))
+            budget = room
+        if budget <= 0:
+            return STATUS_SKIPPED
     try:
         asks = aqua.get_orderbook(symbol).get("asks", [])
     except AquaError as e:      # 호가 조회 실패가 이번 실행 전체를 멈추지 않게
