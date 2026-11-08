@@ -89,3 +89,11 @@ news:
     "035420": ["NAVER", "네이버"]
   match_exclusions:
     "005380": ["현대차증권"]  # 이 문구만으로 현대차 기사로 연결하지 않음
+
+disclosure:                   # 수집 설정. main 연결·매수 차단·LLM 입력은 별도 담당
+  enabled: true
+  lookback_days: 5             # 오늘 포함 달력 5일
+  request_timeout_seconds: 10
+  request_interval_seconds: 1
+  corp_refresh_days: 7
+  max_pages: 100               # 초과 시 해당 종목 실패 처리, 일부만 저장하지 않음
