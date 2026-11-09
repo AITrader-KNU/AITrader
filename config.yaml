@@ -36,6 +36,9 @@ candidates:
 risk:
   max_weight_per_stock: 0.15  # 종목당 총자산 대비 최대 비중              [전략·팀장 확인]
   max_positions: 6
+  min_buy_ratio: 0.5          # 최소 반 포지션: 쓸 수 있는 예산(국면 상한·현금 반영 후)이 정상 예산(총자산 × max_weight_per_stock)의
+                              # 절반보다 작으면 매수 안 함. 11/9 국면 상한까지 남은 21.5만·7.5만 원으로 1주·14주를 사서
+                              # 보유 칸·같은 종목 재매수 기회만 막은 자투리 매수를 방지. 결과를 보기 전에 정한 초깃값
   internal_trade_limit_per_hour: 30   # AQuA 한도는 시간당 30회
 
 exit:

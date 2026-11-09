@@ -12,7 +12,8 @@
 
 매수 검사 (하나라도 걸리면 SKIPPED)
   buy_cutoff(14:00) 이전 / bad_news 아님 / 차단 목록 공시 없음 / 이미 보유한 종목 아님 / 보유 max_positions 미만 /
-  남은 거래 횟수 있음 / 수량 1주 이상 (plan_market_buy: 비중 상한·availableCash·시장 국면 상한·호가 잔량·수수료 반영)
+  남은 거래 횟수 있음 / 예산이 정상 예산의 risk.min_buy_ratio 이상 (자투리 매수 방지) /
+  수량 1주 이상 (plan_market_buy: 비중 상한·availableCash·시장 국면 상한·호가 잔량·수수료 반영)
 
 시장 국면 상한 (config regime, 설계 11월 계획 1절)
   예산 = min(총자산 × max_weight_per_stock, availableCash, 총자산 × 주식 비중 상한 − 주식 평가액)
@@ -286,14 +287,18 @@ def _buy(conn, st: State, d) -> str:
     if (blocked := _precheck_order(st, symbol)):
         return blocked
 
-    budget = min(int(st.total_asset * cfg["risk"]["max_weight_per_stock"]), st.available_cash)
+    full = int(st.total_asset * cfg["risk"]["max_weight_per_stock"])   # 정상 예산(종목당 비중 상한)
+    budget = min(full, st.available_cash)
     if st.equity_cap is not None:
         room = int(st.total_asset * st.equity_cap) - (st.total_asset - st.available_cash)
         if room < budget:
             log.info("BUY %s: 시장 국면 상한 %.0f%% → 예산 %d원에서 %d원으로", symbol, st.equity_cap * 100, budget, max(room, 0))
             budget = room
-        if budget <= 0:
-            return STATUS_SKIPPED
+    min_budget = int(full * cfg["risk"]["min_buy_ratio"])
+    if budget < min_budget:
+        log.info("BUY %s: 예산 %d원 < 최소 %d원(정상 예산의 %.0f%%) → 자투리 매수 안 함, SKIPPED",
+                 symbol, max(budget, 0), min_budget, cfg["risk"]["min_buy_ratio"] * 100)
+        return STATUS_SKIPPED
     try:
         asks = aqua.get_orderbook(symbol).get("asks", [])
     except AquaError as e:      # 호가 조회 실패가 이번 실행 전체를 멈추지 않게

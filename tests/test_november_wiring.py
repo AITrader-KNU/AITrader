@@ -49,10 +49,10 @@ def bought(fake):
 
 # ---------- 시장 국면 상한 ----------
 def test_down_regime_shrinks_budget(fake):
-    add_regime("down", 0.3)                       # 상한 3,000만 − 주식 2,500만 = 500만
+    add_regime("down", 0.35)                      # 상한 3,500만 − 주식 2,500만 = 1,000만 (정상 예산의 67%)
     add_decision("005930")
     manager.run(T_1000)
-    assert bought(fake) == [("005930", 499)]      # 500만 ÷ (1 + 수수료) ÷ 1만원 → 499주
+    assert bought(fake) == [("005930", 999)]      # 1,000만 ÷ (1 + 수수료) ÷ 1만원 → 999주
 
 
 def test_equity_above_cap_skips(fake):
@@ -77,7 +77,7 @@ def test_regime_disabled_means_no_cap(fake, monkeypatch):
 
 
 def test_cap_counts_buys_in_same_run(fake):
-    add_regime("sideways", 0.45)                  # 여유 2,000만: 첫 매수 1,500만 뒤 남는 500만
+    add_regime("sideways", 0.5)                   # 여유 2,500만: 첫 매수 1,500만 뒤 남는 약 1,000만
     manager_cands = [("005930", 1), ("000660", 2)]
     with db.connect() as conn:
         for sym, rank in manager_cands:
@@ -93,7 +93,7 @@ def test_cap_counts_buys_in_same_run(fake):
     fake.place_order = place
     manager.run(T_1000)
     assert [s for s, _ in bought(fake)] == ["005930", "000660"]
-    assert bought(fake)[1][1] < 600               # 두 번째는 남은 여유(약 500만)만큼만
+    assert 900 < bought(fake)[1][1] < 1499        # 두 번째는 정상(1,499주)이 아니라 남은 여유(약 1,000만)만큼만
 
 
 # ---------- 공시 차단 ----------
@@ -203,3 +203,32 @@ def test_judge_continues_when_disclosure_fails(monkeypatch):
     monkeypatch.setattr(main.manager, "run", lambda: order.append("orders"))
     main.judge_job()
     assert order == ["news", "judge", "prices", "orders"]
+
+
+# ---------- 자투리 매수 방지 (risk.min_buy_ratio) ----------
+def test_small_room_under_cap_is_skipped(fake):
+    add_regime("down", 0.252)                     # 여유 20만 원 < 정상 예산 1,500만 × 50%
+    did = add_decision("005930")
+    manager.run(T_1000)
+    assert bought(fake) == [] and status("decisions", "decision_id", did) == "SKIPPED"
+
+
+def test_low_cash_is_skipped(fake):
+    fake.cash = 1_000_000                         # 현금 100만 원뿐 (상한과 무관하게 자투리)
+    did = add_decision("005930")
+    manager.run(T_1000)
+    assert bought(fake) == [] and status("decisions", "decision_id", did) == "SKIPPED"
+
+
+def test_half_position_boundary(fake):
+    add_regime("down", 0.3)                       # 여유 500만 = 정상 예산의 33% < 50% → 안 삼
+    did = add_decision("005930")
+    manager.run(T_1000)
+    assert bought(fake) == [] and status("decisions", "decision_id", did) == "SKIPPED"
+
+
+def test_room_above_half_still_buys(fake):
+    add_regime("down", 0.35)                      # 여유 1,000만 = 정상 예산의 67% ≥ 50% → 그 금액만큼 삼
+    add_decision("005930")
+    manager.run(T_1000)
+    assert bought(fake) == [("005930", 999)]
