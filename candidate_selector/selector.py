@@ -1,21 +1,3 @@
-"""4-2 후보 선정기 — 매일 장 시작 전(premarket) 실행.
-
-흐름: 유동성 상위 N → 추세(종가 > 20일선) → 모멘텀 점수 → 과열 제외 → 상위 top_n 을 candidates 에 저장.
-모든 수치는 config.yaml 에서만 읽는다(코드에 숫자 직접 쓰지 않기).
-
-읽는 곳: daily_candles (run_date 이전 날짜의 봉만 사용 → 당일 미완성 봉 제외)
-쓰는 곳: candidates (run_date, symbol, name, momentum_rank, ret_5d, above_ma20)
-
-점수 = w_ret × rank(ret_120d, 최근 skip일 제외) + w_high × rank(종가 / 52주 고가)
-  ret_120d = close[t-skip] / close[t-skip-lookback] - 1   (t = 마지막 봉)
-  rank = 풀 안에서의 백분위(0~1, 클수록 좋음)
-
-config.yaml 에서 읽는 추가 항목:
-  universe.max_daily_move        하루 변동폭이 이 값을 넘는 봉이 있으면 데이터 오류/분할 의심 → 제외
-  candidates.rank_among          순위를 매기는 풀: "all"=유동성 상위 전체, "trend"=추세 통과 종목끼리
-  candidates.momentum.weight_return / weight_high   점수 가중치
-  candidates.ma_slope_days       require_rising_ma 가 true 일 때 20일선 비교 간격
-"""
 from __future__ import annotations
 
 from datetime import date

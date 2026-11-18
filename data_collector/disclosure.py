@@ -1,7 +1,3 @@
-"""DART 공시 수집: run()은 공통 설정/DB를 사용하고 collect()는 의존성을 주입받는다.
-
-import 시 I/O 없음. 판단·매수 차단·스케줄 연결은 각 담당 모듈의 책임이다.
-"""
 from __future__ import annotations
 
 import io

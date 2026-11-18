@@ -1,79 +1,73 @@
-# 모든 매매 수치는 여기서만 관리합니다. 코드에 숫자를 직접 쓰지 마세요.
-# 값을 바꾸면 설계도 5절 '매매 규칙'에도 반영해 주세요.
-
 timezone: Asia/Seoul
 
 schedule:
-  premarket: "08:00"                     # 데이터 갱신 + 후보 선정
-  reevaluate: ["09:30", "11:00", "13:00"] # 판단 에이전트 실행 시각  [전략]
-  exit_check_minutes: 15                 # 청산 감시 주기
+  premarket: "08:00"
+  reevaluate: ["09:30", "11:00", "13:00"]
+  exit_check_minutes: 15
   market_open: "09:00"
   market_close: "15:00"
-  buy_cutoff: "14:00"                    # 이 시각 이후 신규 매수 금지  [전략]
-  holidays: []                           # 평일 휴장일 (예: "2026-12-25")
+  buy_cutoff: "14:00"
+  holidays: []
 
 universe:
-  liquidity_top_n: 300        # 20일 평균 (종가×거래량) 상위 N개          [전략]
+  liquidity_top_n: 300
   liquidity_window: 20
-  max_daily_move: 0.30        # 하루 ±30% 넘는 봉이 있으면 데이터 오류·분할 의심 → 제외   [전략]
+  max_daily_move: 0.30
 
 candidates:
-  top_n: 15                   # 하루 후보 수                              [전략]
-  ma_window: 20               # 추세 조건: 종가 > 20일 이동평균
-  require_rising_ma: false    # 20일선이 올라가는 중인지도 볼지
-  ma_slope_days: 5            # require_rising_ma 가 true 일 때 20일선 비교 간격
-  rank_among: all             # 모멘텀 순위를 매기는 풀: all(유동성 상위 전체) / trend(추세 통과 종목끼리)
+  top_n: 15
+  ma_window: 20
+  require_rising_ma: false
+  ma_slope_days: 5
+  rank_among: all
   momentum:
-    lookback_days: 120        # 모멘텀 계산 기간
-    skip_recent_days: 20      # 최근 1달 제외
-    high_window_days: 250     # 52주 고가 근접도
-    weight_return: 0.5        # 점수 = weight_return × 수익률 순위 + weight_high × 고점 근접도 순위   [전략]
+    lookback_days: 120
+    skip_recent_days: 20
+    high_window_days: 250
+    weight_return: 0.5
     weight_high: 0.5
   overheat:
-    max_ret_5d: 0.15          # 최근 5일 +15% 초과 시 제외                [전략]
-    max_ret_1d: 0.08          # 당일 +8% 초과 시 제외
+    max_ret_5d: 0.15
+    max_ret_1d: 0.08
 
 risk:
-  max_weight_per_stock: 0.15  # 종목당 총자산 대비 최대 비중              [전략·팀장 확인]
+  max_weight_per_stock: 0.15
   max_positions: 6
-  min_buy_ratio: 0.5          # 최소 반 포지션: 쓸 수 있는 예산(국면 상한·현금 반영 후)이 정상 예산(총자산 × max_weight_per_stock)의
-                              # 절반보다 작으면 매수 안 함. 11/9 국면 상한까지 남은 21.5만·7.5만 원으로 1주·14주를 사서
-                              # 보유 칸·같은 종목 재매수 기회만 막은 자투리 매수를 방지. 결과를 보기 전에 정한 초깃값
-  internal_trade_limit_per_hour: 30   # AQuA 한도는 시간당 30회
+  min_buy_ratio: 0.5
+  internal_trade_limit_per_hour: 30
 
 exit:
-  stop_loss: -0.04            # 손절                                       [전략]
-  take_profit: 0.06           # 익절
-  take_profit_sell_ratio: 1.0 # 익절 시 매도 비율 (1.0 = 전량)
-  max_holding_days: 5         # 매수 후 N거래일 지나면 정리
-  # 악재 매도는 여기서 다루지 않음: 판단 에이전트가 decisions에 SELL을 내면 주문 관리자가 매도(A안)
+  stop_loss: -0.04
+  take_profit: 0.06
+  take_profit_sell_ratio: 1.0
+  max_holding_days: 5
 
-review:                       # 매주 금요일 청산 규칙 점검 기준(tools/exit_review.py). 결과를 보기 전에 정해 둔 값  [전략]
-  min_cases: 5                # 해당 매도가 이 건수 미만이면 판단 보류(사례가 적으면 우연과 구분 불가)
-  window_days: 5              # 매도 후 며칠(거래일) 동안의 종가를 볼지 — 최대 보유일과 같은 1주
-  recovery_ratio: 0.5         # 손절 종목 중 이 비율 이상이 매수가 위로 회복하면 '손절이 너무 좁다'
-  stop_fill_limit: -0.05      # 손절 거래 평균 손익(비용 제외)이 이보다 나쁘면 '체결이 너무 밀린다'
-  tp_extra: 0.10              # 익절 종목이 매수가 대비 이 수익을 넘으면 '추가 상승'
-  tp_extra_ratio: 0.5         # 익절 종목 중 이 비율 이상이 추가 상승하면 '익절이 너무 이르다'
+review:
+  min_cases: 5
+  window_days: 5
+  recovery_ratio: 0.5
+  stop_fill_limit: -0.05
+  tp_extra: 0.10
+  tp_extra_ratio: 0.5
 
 order:
-  buy_type: market            # [팀장] 호가 잔량 확인 후 시장가
+  buy_type: market
   sell_type: market
 
-fees:                         # AQuA API 문서 기준 (토스증권 코스피 수수료 체계)
-  commission: 0.00015         # 매수·매도 모두 체결 금액의 0.015%
-  sell_tax: 0.002             # 매도 시 증권거래세+농특세 0.20%  → 왕복 약 0.23%
+fees:
+  commission: 0.00015
+  sell_tax: 0.002
 
 llm:
-  use_llm: true               # false 면 판단 에이전트 대신 임시 규칙(후보 상위 N개 매수) 사용 [팀장]
+  use_llm: true
   temp_rule_top_n: 3
-  model: gemini-3.5-flash     # 11/2 VM 실측: 3.8-flash 는 짧은 질문도 13.8초~120초 초과, 3.5-flash 2.2초 → 응답 안정성 우선
+  model: gemini-3.5-flash
   max_headlines_per_stock: 5
   max_retries: 1
-  timeout_seconds: 120        # Gemini 응답 대기. 짧은 질문도 13.8초(11/2 VM 실측), 실제 판단은 입력이 커서 더 걸림
+  timeout_seconds: 120
 
 api:
-  max_calls_per_minute: 80    # AQuA 한도 100회보다 여유 있게
+  max_calls_per_minute: 80
 
 db:
   path: data/aqua.db
@@ -91,25 +85,24 @@ news:
     "005380": ["현대차", "현대자동차"]
     "035420": ["NAVER", "네이버"]
   match_exclusions:
-    "005380": ["현대차증권"]  # 이 문구만으로 현대차 기사로 연결하지 않음
+    "005380": ["현대차증권"]
 
-disclosure:                   # 수집(data_collector/disclosure.py) + LLM 입력(news_judge) + 매수 차단(order_manager)
+disclosure:
   enabled: true
-  lookback_days: 5             # 오늘 포함 달력 5일
+  lookback_days: 5
   request_timeout_seconds: 10
   request_interval_seconds: 1
   corp_refresh_days: 7
-  max_pages: 100               # 초과 시 해당 종목 실패 처리, 일부만 저장하지 않음
-  max_per_stock: 5             # 판단 프롬프트에 넣을 종목당 최근 공시 수
-  block_buy_days: 5            # 차단 목록 공시가 오늘 포함 달력 N일 안에 있으면 매수하지 않음 (주문 관리자)
+  max_pages: 100
+  max_per_stock: 5
+  block_buy_days: 5
   block_keywords: ["관리종목", "상장폐지", "매매거래정지", "횡령", "배임", "불성실공시", "감사의견", "유상증자결정"]
-                               # 공시 제목(report_nm)에 이 문구가 있으면 LLM 판단과 상관없이 매수 차단. 해석이 갈리는 공시는 LLM 에 맡김
 
-regime:                       # 시장 국면(market_regime/regime.py) → 주식 비중 상한(order_manager)   [전략]
-  enabled: true               # false 면 상한 없이 기존처럼 매수 (국면 판정·기록은 계속)
-  top_n: 200                  # 대용 지수 종목 수: 전일까지 20일 평균 거래대금 상위 N (KODEX 200 일봉을 못 받아 동일 가중 지수로 대신)
-  min_stocks: 150             # 그날 유효 종목이 이보다 적으면 그날은 지수에서 뺌
+regime:
+  enabled: true
+  top_n: 200
+  min_stocks: 150
   ma_short: 20
   ma_long: 60
-  max_equity_ratio: {up: 0.9, sideways: 0.6, down: 0.3}   # 설계 초깃값. 종목당 15% 기준 6·4·2종목
-  default_when_missing: sideways   # 그날 국면 기록이 없을 때(서버 장애 등) 쓸 값
+  max_equity_ratio: {up: 0.9, sideways: 0.6, down: 0.3}
+  default_when_missing: sideways
