@@ -1,4 +1,3 @@
-"""날짜별 로그 파일 + 콘솔 출력."""
 import logging
 from datetime import datetime
 from pathlib import Path

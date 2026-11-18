@@ -1,8 +1,3 @@
-"""4-3 뉴스 분석·판단 에이전트 (LLM) — 담당: NLP·LLM
-
-읽는 것: candidates, news, disclosures(DART 공시) 테이블, positions_meta(보유 종목)
-쓰는 테이블: decisions (종목마다 한 행, status='NEW')
-"""
 import json
 import sqlite3
 import requests
@@ -45,8 +40,6 @@ def get_current_kst_iso() -> str:
 
 def call_gemini_api(prompt: str, model_name: str, api_key: str) -> Dict[str, Any]:
     clean_model = model_name.replace("models/", "")
-    # API 키는 URL 이 아니라 헤더로 보낸다(Gemini API 문서의 x-goog-api-key 방식).
-    # URL 에 넣으면 타임아웃 등 requests 오류 메시지에 URL 이 키째로 담겨 로그에 남는다.
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
     payload = {
@@ -54,7 +47,7 @@ def call_gemini_api(prompt: str, model_name: str, api_key: str) -> Dict[str, Any
         "systemInstruction": {"parts": [{"text": SYSTEM_INSTRUCTION}]},
         "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}
     }
-    timeout = get_config().get("llm", {}).get("timeout_seconds", 30)   # 응답 대기(초), config.yaml llm.timeout_seconds
+    timeout = get_config().get("llm", {}).get("timeout_seconds", 30)
     response = requests.post(url, headers=headers, json=payload, timeout=timeout)
     if response.status_code != 200:
         raise Exception(f"HTTP {response.status_code}: {response.text}")
@@ -69,14 +62,6 @@ def call_gemini_api(prompt: str, model_name: str, api_key: str) -> Dict[str, Any
     }
 
 def _recent_disclosures(cursor, symbol: str, run_at: str, limit: int) -> List[Dict[str, Any]]:
-    """판단 시각 이전에 수집된 최근 공시(미래 정보 차단: collected_at <= run_at).
-
-    공시 접수일(rcept_dt)에는 시각이 없어서 수집 시각으로 '판단 시점에 알 수 있었는지'를 가린다.
-    collected_at 은 마이크로초까지, run_at 은 초 단위(소수점 버림)라 문자열이 아니라 시각으로 비교하고,
-    run_at 이 실제 시각보다 최대 1초 이르게 적혀 있으므로 run_at + 1초 미만까지 포함한다
-    (공시 수집은 판단 시작 전에 끝나므로 같은 초에 수집된 공시도 판단 전에 이미 있던 것).
-    disclosures 테이블이 없거나(공시 수집 전 DB) 조회가 실패하면 공시 없이 판단한다.
-    """
     if limit <= 0:
         return []
     try:
@@ -118,7 +103,7 @@ def run() -> None:
     max_retries = llm_cfg.get("max_retries", 1)
     max_headlines = llm_cfg.get("max_headlines_per_stock", 5)
     dc = config.get("disclosure") or {}
-    max_disclosures = dc.get("max_per_stock", 5) if dc.get("enabled", False) else 0   # 0 이면 프롬프트에 공시를 넣지 않음
+    max_disclosures = dc.get("max_per_stock", 5) if dc.get("enabled", False) else 0
     api_key = env("GEMINI_API_KEY")
 
     if not api_key:
@@ -190,7 +175,7 @@ def run() -> None:
     prompt += "[출력 형식]\nJSON 리스트로만 반환하십시오:\n[\n  {\n    \"symbol\": \"종목코드\", \"action\": \"BUY | WAIT | SELL\", \"bad_news\": true 또는 false, \"reason\": \"근거\", \"risks\": [], \"news_ids\": []\n  }\n]\n"
 
     parsed_results = {}
-    for attempt in range(max_retries + 1):          # 오류 시 llm.max_retries 번 재시도 후 전부 WAIT
+    for attempt in range(max_retries + 1):
         try:
             call_res = call_gemini_api(prompt, model_name, api_key)
             log.info(f"news_judge.run: 토큰 사용량 - 입력: {call_res['prompt_tokens']}, 출력: {call_res['candidates_tokens']}")

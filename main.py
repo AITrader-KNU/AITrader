@@ -1,17 +1,3 @@
-"""에이전트 진입점 — Google Cloud VM 에서 이 파일 하나를 계속 띄워 둡니다.
-
-  python main.py              # 스케줄러 실행 (평일 장 시간에 자동으로 돎)
-  python main.py --once all   # 지금 바로 전체 흐름을 한 번 돌려 보기 (테스트용)
-  python main.py --once premarket | judge | exit
-
-하루 흐름 (시각은 config.yaml 의 schedule)
-  08:00              데이터 갱신 → 후보 선정 → 시장 국면 판정
-  09:30·11:00·13:00  뉴스 수집 → 공시 수집 → 판단(LLM) → 판단 시점 가격 기록 → 주문
-  09:00~14:45 15분마다 청산 감시 → 주문
-판단 자리는 config llm.use_llm 이 false 인 동안 임시 규칙(order_manager/temp_rule.py)이 대신한다.
-실제 주문은 .env 의 DRY_RUN=0 인 곳(Google Cloud VM)에서만 나간다.
-에이전트끼리는 DB 테이블로만 데이터를 주고받으므로, 여기서는 순서만 정합니다.
-"""
 import argparse
 from datetime import date
 
@@ -35,7 +21,6 @@ def is_trading_day(d: date | None = None) -> bool:
 
 
 def _safe(step):
-    """한 단계가 실패해도 다음 사이클은 계속 돌도록 예외를 로그로만 남긴다."""
     def wrapper():
         if not is_trading_day():
             return
@@ -48,7 +33,6 @@ def _safe(step):
 
 
 def _optional(step, what: str) -> None:
-    """실패해도 그 작업의 나머지(후보 선정·판단·주문)는 계속하는 보조 단계."""
     try:
         step()
     except Exception:
@@ -58,17 +42,17 @@ def _optional(step, what: str) -> None:
 def premarket_job():
     collector.update_daily_candles()
     selector.run()
-    _optional(regime.run, "시장 국면 판정")   # 후보는 이미 저장됨. 실패하면 주문 관리자가 default_when_missing 사용
+    _optional(regime.run, "시장 국면 판정")
 
 
 def judge_job():
     collector.collect_news()
-    _optional(disclosure.run, "공시 수집")     # disclosure.run 은 원래 예외를 내지 않지만 한 번 더 감쌈
+    _optional(disclosure.run, "공시 수집")
     if CFG["llm"]["use_llm"]:
         judge.run()
     else:
-        temp_rule.run()     # LLM 연결 전 임시: 후보 상위 N개를 BUY 로 기록
-    decision_prices.run()   # 판단 직후 현재가 기록(분석용). 실패해도 예외를 내지 않아 주문은 그대로 진행
+        temp_rule.run()
+    decision_prices.run()
     manager.run()
 
 
@@ -86,12 +70,10 @@ def run_scheduler():
 
     sch = CFG["schedule"]
     tz = CFG["timezone"]
-    # 작업을 한 번에 하나씩만 실행한다. 09:30·11:00·13:00에는 판단 작업과 청산 작업이
-    # 같은 시각에 걸리는데, 동시에 돌면 주문 관리자가 두 번 실행돼 같은 요청을 두 번 주문할 수 있다.
     scheduler = BlockingScheduler(
         timezone=tz,
         executors={"default": ThreadPoolExecutor(1)},
-        job_defaults={"coalesce": True, "misfire_grace_time": 300},  # 밀린 작업은 5분 안이면 실행
+        job_defaults={"coalesce": True, "misfire_grace_time": 300},
     )
 
     h, m = sch["premarket"].split(":")

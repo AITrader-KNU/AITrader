@@ -1,36 +1,16 @@
-"""SQLite DB — 기존 매매 테이블과 공시 수집 테이블(decision_prices 는 분석용 기록).
-
-테이블          쓰는 쪽               읽는 쪽
-daily_candles   4-1 데이터 수집기      4-2 후보 선정기
-news            4-1 데이터 수집기      4-3 판단 에이전트
-candidates      4-2 후보 선정기        4-3 판단 에이전트, 4-1 데이터 수집기(뉴스 대상)
-decisions       4-3 판단 에이전트      4-4 주문 관리자 (BUY·SELL·WAIT 모두 처리)
-sell_requests   4-5 청산 감시자        4-4 주문 관리자
-positions_meta  4-4 주문 관리자        4-5 청산 감시자
-orders_log      4-4 주문 관리자        점검·분석
-decision_prices 4-4 주문 관리자        점검·분석 (판단 직후 현재가, 규칙 vs LLM 비교용. 매매에는 안 씀)
-corp_codes     4-1 공시 수집기        4-1 공시 수집기 (종목코드→DART 고유번호)
-disclosures    4-1 공시 수집기        4-3 판단 에이전트(프롬프트), 4-4 주문 관리자(매수 차단)
-market_regime  시장 국면 판정         4-4 주문 관리자 (주식 비중 상한)
-
-요청 테이블(decisions, sell_requests)의 status 는 주문 관리자만 바꿉니다.
-positions_meta 에는 지금 보유 중인 종목만 남기고, 전량 매도하면 지웁니다.
-열(column)을 바꾸려면 팀원에게 먼저 알리고 설계도 5절도 함께 고칩니다.
-"""
 import sqlite3
 from contextlib import contextmanager
 
 from common.config import ROOT, get_config
 
-# 요청 테이블(decisions, sell_requests)의 처리 상태
-STATUS_NEW = "NEW"          # 아직 주문 관리자가 처리 안 함
-STATUS_DONE = "DONE"        # 주문 완료
-STATUS_SKIPPED = "SKIPPED"  # 규칙 위반 등으로 주문하지 않음
+STATUS_NEW = "NEW"
+STATUS_DONE = "DONE"
+STATUS_SKIPPED = "SKIPPED"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS daily_candles (
     symbol      TEXT NOT NULL,
-    date        TEXT NOT NULL,          -- YYYY-MM-DD
+    date        TEXT NOT NULL,
     open        INTEGER,
     high        INTEGER,
     low         INTEGER,
@@ -40,10 +20,10 @@ CREATE TABLE IF NOT EXISTS daily_candles (
 );
 
 CREATE TABLE IF NOT EXISTS news (
-    news_id      TEXT PRIMARY KEY,      -- 기사 URL 해시 등 (중복 제거 기준)
+    news_id      TEXT PRIMARY KEY,
     symbol       TEXT NOT NULL,
     title        TEXT NOT NULL,
-    published_at TEXT NOT NULL,         -- ISO-8601 KST. 판단 시각 이후 기사는 쓰지 않음
+    published_at TEXT NOT NULL,
     source       TEXT,
     url          TEXT,
     collected_at TEXT NOT NULL
@@ -51,12 +31,12 @@ CREATE TABLE IF NOT EXISTS news (
 CREATE INDEX IF NOT EXISTS idx_news_symbol_time ON news (symbol, published_at);
 
 CREATE TABLE IF NOT EXISTS candidates (
-    run_date      TEXT NOT NULL,        -- 후보를 뽑은 날짜
+    run_date      TEXT NOT NULL,
     symbol        TEXT NOT NULL,
     name          TEXT,
     momentum_rank INTEGER,
     ret_5d        REAL,
-    above_ma20    INTEGER,              -- 0/1
+    above_ma20    INTEGER,
     PRIMARY KEY (run_date, symbol)
 );
 
@@ -67,8 +47,8 @@ CREATE TABLE IF NOT EXISTS decisions (
     action      TEXT NOT NULL CHECK (action IN ('BUY', 'WAIT', 'SELL')),
     bad_news    INTEGER NOT NULL DEFAULT 0,
     reason      TEXT,
-    risks       TEXT,                   -- JSON 배열 문자열
-    news_ids    TEXT,                   -- JSON 배열 문자열
+    risks       TEXT,
+    news_ids    TEXT,
     status      TEXT NOT NULL DEFAULT 'NEW'
 );
 CREATE INDEX IF NOT EXISTS idx_decisions_status ON decisions (status);
@@ -78,13 +58,13 @@ CREATE TABLE IF NOT EXISTS sell_requests (
     created_at TEXT NOT NULL,
     symbol     TEXT NOT NULL,
     why        TEXT NOT NULL CHECK (why IN ('STOP_LOSS', 'TAKE_PROFIT', 'EXPIRED')),
-                                        -- 악재·LLM 매도는 decisions 의 SELL 로 처리
+
     status     TEXT NOT NULL DEFAULT 'NEW'
 );
 CREATE INDEX IF NOT EXISTS idx_sell_requests_status ON sell_requests (status);
 
 CREATE TABLE IF NOT EXISTS positions_meta (
-    symbol      TEXT PRIMARY KEY,       -- 현재 보유 중인 종목만. 전량 매도 시 삭제
+    symbol      TEXT PRIMARY KEY,
     bought_at   TEXT NOT NULL,
     buy_price   INTEGER,
     reason      TEXT,
@@ -92,24 +72,24 @@ CREATE TABLE IF NOT EXISTS positions_meta (
 );
 
 CREATE TABLE IF NOT EXISTS orders_log (
-    order_id       INTEGER PRIMARY KEY, -- AQuA 가 준 orderId
+    order_id       INTEGER PRIMARY KEY,
     symbol         TEXT NOT NULL,
     side           TEXT NOT NULL CHECK (side IN ('BUY', 'SELL')),
     quantity       INTEGER NOT NULL,
-    status         TEXT,                -- OPEN / PARTIAL / FILLED / CANCELLED
-    executed_price INTEGER,             -- 체결 수량 가중 평균 단가
-    total_amount   INTEGER,             -- 체결 금액 합계 (수수료·세금 미포함)
-    fee            INTEGER,             -- 수수료 (매수·매도 0.015%)
-    tax            INTEGER,             -- 매도 세금 (0.20%)
-    source         TEXT,                -- 'decision:<id>' 또는 'sell_request:<id>'
+    status         TEXT,
+    executed_price INTEGER,
+    total_amount   INTEGER,
+    fee            INTEGER,
+    tax            INTEGER,
+    source         TEXT,
     created_at     TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS decision_prices (
     decision_id INTEGER PRIMARY KEY REFERENCES decisions (decision_id),
-    price       INTEGER,                -- 판단 직후 AQuA 현재가 (사지 않은 WAIT 종목도 기록)
-    price_time  TEXT,                   -- AQuA 가 준 현재가 timestamp
-    recorded_at TEXT NOT NULL           -- 기록한 시각 (KST)
+    price       INTEGER,
+    price_time  TEXT,
+    recorded_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS corp_codes (
@@ -130,13 +110,13 @@ CREATE INDEX IF NOT EXISTS idx_disclosures_symbol_date
     ON disclosures (symbol, rcept_dt, collected_at);
 
 CREATE TABLE IF NOT EXISTS market_regime (
-    run_date         TEXT PRIMARY KEY,   -- 이 국면을 적용하는 날짜
+    run_date         TEXT PRIMARY KEY,
     regime           TEXT NOT NULL CHECK (regime IN ('up', 'sideways', 'down')),
-    index_close      REAL,               -- 판정에 쓴 마지막 날(run_date 이전)의 대용 지수
+    index_close      REAL,
     ma_short         REAL,
     ma_long          REAL,
-    max_equity_ratio REAL NOT NULL,      -- 그날의 주식 비중 상한(예: 0.6)
-    created_at       TEXT NOT NULL       -- ISO-8601 KST
+    max_equity_ratio REAL NOT NULL,
+    created_at       TEXT NOT NULL
 );
 """
 
@@ -147,12 +127,11 @@ def db_path():
 
 @contextmanager
 def connect():
-    """with connect() as conn: ... — 블록이 끝나면 자동 commit."""
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")   # 여러 에이전트가 동시에 읽고 쓰기
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn

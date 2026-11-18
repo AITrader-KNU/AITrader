@@ -1,8 +1,3 @@
-"""4-1 데이터 수집기 — 담당: 데이터·인프라
-
-쓰는 테이블: daily_candles, news
-읽는 것: candidates (뉴스를 모을 종목), 포트폴리오 API (보유 종목, get_portfolio)
-"""
 from datetime import datetime, timedelta, timezone
 
 from common import aqua_client, db
@@ -128,10 +123,5 @@ def update_daily_candles() -> None:
 
 
 def collect_news() -> None:
-    """후보·보유 종목의 최근 헤드라인을 news 에 저장.
-    - 게시 시각(published_at) 반드시 저장, 같은 기사는 news_id 로 중복 제거
-    - 종목명↔코드 매핑 규칙 적용('현대'·'삼성' 단독 매칭 금지 등)
-    Google News RSS 사용. 조회 기간·타임아웃·별칭은 config.yaml의 news 설정을 따른다.
-    설정이 없으면 후속 판단이 불완전한 입력으로 진행되지 않도록 예외를 낸다."""
     from data_collector.news import collect
     collect()
