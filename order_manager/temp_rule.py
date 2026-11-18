@@ -1,10 +1,3 @@
-"""임시 판단 규칙 — LLM 판단 에이전트가 연결되기 전까지 쓰는 자리 채우기. 담당: 팀장
-
-config.yaml 의 llm.use_llm 이 false 이면 main.py 가 news_judge.judge.run() 대신 이 run() 을 부른다.
-오늘 후보(candidates) 중 모멘텀 순위 상위 N개(llm.temp_rule_top_n)를 BUY 로 decisions 에 쓴다.
-같은 날 이미 판단이 있는 종목은 다시 쓰지 않는다. 출력 형식은 판단 에이전트와 똑같으므로
-주문 관리자는 둘을 구분하지 않는다. 판단 에이전트가 완성되면 use_llm 을 true 로 바꾸기만 하면 된다.
-"""
 from datetime import datetime
 from zoneinfo import ZoneInfo
 

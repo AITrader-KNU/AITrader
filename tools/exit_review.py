@@ -1,19 +1,3 @@
-"""매주 금요일 청산 규칙 점검 — 손절·익절 값을 바꿀 조건을 만족했는지 확인한다(조회만, 주문 없음).
-
-  python -m tools.exit_review                    # 운영 시작부터 지금까지 전체
-  python -m tools.exit_review --since 2026-11-02 # 이 날짜 이후 매도만
-
-조정 조건(config.yaml review 섹션, 결과를 보기 전에 정해 둔 값)
-  1. 손절 후 회복률: 손절 종목 중 recovery_ratio 이상이 매도 후 window_days 거래일 안에
-     종가 기준으로 매수가 이상 회복 → 손절이 너무 좁다(손절 -4% → -7%, 익절 +6% → +10% 검토)
-  2. 손절 체결 수준: 손절 거래의 평균 손익(비용 제외)이 stop_fill_limit 보다 나쁨 → 손절 폭·점검 주기 재검토
-  3. 익절 후 추가 상승: 익절 종목 중 tp_extra_ratio 이상이 window_days 안에 종가가 매수가 대비 tp_extra 를 넘음
-     → 익절이 너무 이르다(익절 +6% → +10% 검토)
-  해당 매도가 min_cases 건 미만이면 판단 보류.
-
-읽는 것: orders_log(매수·매도 체결가), sell_requests(매도 이유), daily_candles(매도 후 종가)
-매도 후 window_days 거래일의 일봉이 아직 다 쌓이지 않은 거래는 회복·추가 상승 판단에서 뺀다.
-"""
 import argparse
 
 from common.config import get_config
@@ -21,7 +5,6 @@ from common.db import connect, init_db
 
 
 def load_exits(conn, since: str | None) -> list[dict]:
-    """청산 감시자가 낸 매도(손절·익절·기간 만료)마다 직전 매수가를 짝지어 돌려준다."""
     sells = conn.execute(
         """SELECT o.symbol, o.executed_price AS sell_price, o.created_at, s.why
            FROM orders_log o JOIN sell_requests s ON o.source = 'sell_request:' || s.request_id
@@ -34,7 +17,7 @@ def load_exits(conn, since: str | None) -> list[dict]:
                WHERE symbol = ? AND side = 'BUY' AND executed_price IS NOT NULL AND created_at < ?
                ORDER BY created_at DESC LIMIT 1""", (s["symbol"], s["created_at"])).fetchone()
         if buy is None:
-            continue                                   # 매수 기록이 없는 보유분(수동 매수 등)은 판단에서 뺌
+            continue
         exits.append(dict(symbol=s["symbol"], why=s["why"], sell_date=s["created_at"][:10],
                           buy=buy["executed_price"], sell=s["sell_price"],
                           ret=s["sell_price"] / buy["executed_price"] - 1))
@@ -42,7 +25,6 @@ def load_exits(conn, since: str | None) -> list[dict]:
 
 
 def closes_after(conn, symbol: str, day: str, n: int) -> list[float]:
-    """매도일 다음 거래일부터 n개 종가. 아직 n개가 안 쌓였으면 있는 만큼."""
     rows = conn.execute("SELECT close FROM daily_candles WHERE symbol = ? AND date > ? ORDER BY date LIMIT ?",
                         (symbol, day, n)).fetchall()
     return [r["close"] for r in rows]
@@ -60,7 +42,7 @@ def review(conn, since: str | None, cfg: dict) -> dict:
     exits = load_exits(conn, since)
     for e in exits:
         after = closes_after(conn, e["symbol"], e["sell_date"], n)
-        e["ready"] = len(after) >= n                     # 매도 후 n거래일이 다 지났는지
+        e["ready"] = len(after) >= n
         e["max_close_ret"] = max(after) / e["buy"] - 1 if after else None
 
     stops = [e for e in exits if e["why"] == "STOP_LOSS"]
@@ -89,7 +71,7 @@ def main() -> None:
     p.add_argument("--since", help="이 날짜(YYYY-MM-DD) 이후 매도만 점검")
     args = p.parse_args()
     cfg = get_config()
-    init_db()                                          # 처음 실행해 테이블이 없을 때를 대비
+    init_db()
     with connect() as conn:
         r = review(conn, args.since, cfg)
 
