@@ -1,4 +1,3 @@
-"""Google News RSS 헤드라인 수집. 기사 본문과 LLM 판단은 처리하지 않는다."""
 import hashlib
 import html
 import math
