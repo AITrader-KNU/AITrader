@@ -18,7 +18,6 @@ FATAL_CODES = {"010", "011", "012", "020", "800", "901"}
 
 
 class CollectionError(Exception):
-    """Only controlled messages: never include URLs, keys or raw response bodies."""
 
     def __init__(self, code):
         self.code = code if re.fullmatch(r"[A-Z_]+|[0-9]{3}", str(code)) else "INVALID_RESPONSE"
@@ -89,7 +88,6 @@ def checked_date(value):
 
 
 def http_get(endpoint, params, timeout):
-    """Transport may be replaced by a fixture. No retries; one request per call."""
     if endpoint not in {"list.json", "corpCode.xml"}:
         raise CollectionError("INVALID_ENDPOINT")
     try:
@@ -245,11 +243,6 @@ def store_disclosures(conn, rows):
 
 def collect(conn, *, holdings, api_key, settings=None, transport=http_get,
             clock=now_kst, sleep=time.sleep):
-    """Return controlled errors, so callers can continue news-based judgment.
-
-    holdings: [{symbol, quantity}, ...], passed by the integration owner.
-    No portfolio API calls, schema changes or automatic retry here.
-    """
     cfg = settings or Settings()
     result = Result()
     if not cfg.enabled:
@@ -306,10 +299,6 @@ def collect(conn, *, holdings, api_key, settings=None, transport=http_get,
 
 
 def run() -> Result:
-    """Collect current candidates/holdings; failures return a result, never stop judge.
-
-    Scheduler integration calls this after news collection. No automatic execution.
-    """
     result = Result()
     log = None
     try:

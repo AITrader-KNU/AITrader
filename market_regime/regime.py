@@ -42,7 +42,6 @@ def _rcfg(cfg: dict | None) -> dict:
 
 # ----------------------------------------------------------------------------- 순수 함수
 def classify(closes, cfg: dict | None = None) -> str:
-    """지수 종가 목록(과거→최근) → "up" | "sideways" | "down" | "unknown". API·DB 를 쓰지 않는다."""
     r = _rcfg(cfg)
     x = np.asarray(list(closes), dtype="float64")
     if len(x) < r["min_bars"] or len(x) < r["ma_long"]:
@@ -61,7 +60,6 @@ def classify(closes, cfg: dict | None = None) -> str:
 
 
 def equity_cap(regime: str, cfg: dict | None = None) -> float:
-    """국면 → 주식 비중 상한(0~1). 국면을 모르면(unknown 등) default_when_missing 의 값."""
     r = _rcfg(cfg or get_config())
     table = r["max_equity_ratio"]
     key = regime if regime in table else r["default_when_missing"]
@@ -69,10 +67,6 @@ def equity_cap(regime: str, cfg: dict | None = None) -> float:
 
 
 def build_index(daily: pd.DataFrame, cfg: dict) -> pd.DataFrame:
-    """일봉(symbol,date,close,volume) → 날짜별 [ret, n_stocks] (지수 일간 수익률과 유효 종목 수).
-
-    날짜 t 의 종목군은 t 전날까지의 20일 평균 거래대금 상위 top_n (미래 정보 배제).
-    """
     r = _rcfg(cfg)
     liq_w = cfg["universe"]["liquidity_window"]
     max_move = cfg.get("universe", {}).get("max_daily_move", 0.30)
@@ -87,7 +81,6 @@ def build_index(daily: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 
 
 def build_regimes(daily: pd.DataFrame, cfg: dict) -> pd.DataFrame:
-    """일봉 → 날짜별 [index_close, ma_short, ma_long, n_stocks, regime]. (그 날짜 종가까지의 정보만 사용)"""
     r = _rcfg(cfg)
     ix = build_index(daily, cfg)
     good = ix[(ix["n_stocks"] >= r["min_stocks"]) & ix["ret"].notna()].copy()
@@ -118,11 +111,6 @@ def _load_candles(conn, run_date: str, max_bars: int | None = None) -> pd.DataFr
 
 
 def run(run_date: date | str | None = None) -> str:
-    """국면을 판정해 market_regime 에 그날 한 행을 쓰고 국면 문자열을 반환. 같은 run_date 는 덮어씀(멱등).
-
-    일봉이 없거나 봉이 60개 미만이면 기존 행을 건드리지 않고 "unknown" 만 반환(쓰지 않음).
-    → 주문 관리자는 '그날 기록 없음' 으로 보고 default_when_missing(횡보 60%)을 적용한다.
-    """
     init_db()
     cfg = get_config()
     r = _rcfg(cfg)
@@ -165,7 +153,6 @@ def run(run_date: date | str | None = None) -> str:
 
 # ----------------------------------------------------------------------------- 확인용 출력
 def print_history(start: str, end: str) -> None:
-    """start~end 날짜별 국면을 출력(조회 전용). '기준일' 종가까지 보고 판정한 값 → 다음 거래일에 적용."""
     cfg = get_config()
     with connect() as conn:
         df = _load_candles(conn, "9999-12-31")

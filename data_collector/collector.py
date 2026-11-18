@@ -100,12 +100,6 @@ def _update_symbol(symbol, cutoff):
 
 
 def update_daily_candles() -> None:
-    """장 전: 유니버스 종목의 일봉을 daily_candles 에 갱신.
-    - 최초에는 최근 1년과 전략 설정상 최소 봉수를 확보(get_candles 이어받기)
-    - 이미 저장한 이력이 최소 봉수보다 짧으면 과거를 보충하고, 이후에는 최신 봉만 추가
-    - 중단 기간이 길면 마지막 저장일까지 이어받고, 기존 이력은 재적재하지 않음
-    - 오늘 및 미래 일봉 제외, 종목별 저장, 실패 시 후속 후보 선정 중단
-    AQuA 조회는 common.aqua_client를 통해 실행한다."""
     cutoff = _today()
     stocks = aqua_client.list_stocks()
     if not stocks:
