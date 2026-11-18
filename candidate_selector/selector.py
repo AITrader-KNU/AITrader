@@ -14,7 +14,6 @@ STALE_DAYS = 4  # 마지막 봉이 run_date 보다 이만큼 이상 오래됐으
 
 
 def _names() -> dict[str, str]:
-    """종목명 {symbol: name}. API 가 아직 구현 전이거나 실패하면 빈 dict (name 은 NULL 로 저장)."""
     try:
         from common import aqua_client
 
@@ -25,7 +24,6 @@ def _names() -> dict[str, str]:
 
 
 def _load_candles(conn, run_date: str, max_bars: int) -> pd.DataFrame:
-    """run_date 이전 봉만. 종목당 최근 max_bars 개."""
     df = pd.read_sql_query(
         "SELECT symbol, date, high, close, volume FROM daily_candles "
         "WHERE date < ? ORDER BY symbol, date",
@@ -40,7 +38,6 @@ def _load_candles(conn, run_date: str, max_bars: int) -> pd.DataFrame:
 
 
 def compute(df: pd.DataFrame, cfg: dict) -> tuple[pd.DataFrame, dict]:
-    """순수 계산 함수(DB 없음). df: symbol,date,high,close,volume. 반환: (선정 결과, 단계별 종목 수)."""
     c = cfg["candidates"]
     mom, ov = c["momentum"], c["overheat"]
     lb, skip, hiw = mom["lookback_days"], mom["skip_recent_days"], mom["high_window_days"]
@@ -106,7 +103,6 @@ def compute(df: pd.DataFrame, cfg: dict) -> tuple[pd.DataFrame, dict]:
 
 
 def run(run_date: date | str | None = None) -> int:
-    """후보 선정 후 candidates 에 저장. 같은 run_date 를 다시 돌리면 그날 행을 지우고 새로 씀. 저장 건수 반환."""
     init_db()  # 테이블이 없으면 만듦(이미 있으면 그대로)
     cfg = get_config()
     rd = (run_date or date.today()).isoformat() if not isinstance(run_date, str) else run_date

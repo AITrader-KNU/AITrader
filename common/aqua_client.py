@@ -29,7 +29,6 @@ _calls = deque()
 
 
 def _wait_for_slot():
-    """프로세스 내 모든 요청(로그인·재시도 포함)에 이동 60초 한도 적용."""
     limit = get_config()["api"]["max_calls_per_minute"]
     if type(limit) is not int or limit <= 0:
         raise ValueError("api.max_calls_per_minute must be a positive integer")
