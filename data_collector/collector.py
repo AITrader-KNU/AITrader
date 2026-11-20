@@ -105,17 +105,20 @@ def update_daily_candles() -> None:
     if not stocks:
         raise ValueError("No stocks returned")
     db.init_db()
+    symbols = list(dict.fromkeys(stock["symbol"] for stock in stocks))
     failed = []
-    for symbol in dict.fromkeys(stock["symbol"] for stock in stocks):
+    for symbol in symbols:
         try:
             _update_symbol(symbol, cutoff)
         except (aqua_client.AquaError, ValueError, KeyError, TypeError) as exc:
             failed.append(symbol)
-            log.error("%s: collection failed (%s)", symbol, type(exc).__name__)
+            log.error("%s: collection failed (%s: %s)", symbol, type(exc).__name__, exc)
+    if len(failed) == len(symbols):
+        raise RuntimeError(f"Daily candle collection failed for all {len(symbols)} symbols")
     if failed:
-        raise RuntimeError(f"Daily candle collection failed: {', '.join(failed)}")
+        log.warning("Daily candle collection failed for %d/%d symbols, continuing without them: %s",
+                    len(failed), len(symbols), ", ".join(failed))
 
-
-def collect_news() -> None:
+def collect_news() -> list[str]:
     from data_collector.news import collect
-    collect()
+    return collect()

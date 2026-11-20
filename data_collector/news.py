@@ -106,7 +106,7 @@ def collect(symbols=None):
     days = cfg.get("lookback_days")
     if type(days) is not int or days <= 0:
         raise ValueError("news.lookback_days must be a positive integer")
-    for key in ("request_timeout_seconds", "request_interval_seconds"):
+    for key in ("request_timeout_seconds", "request_interval_seconds", "retry_delay_seconds"):
         value = cfg.get(key)
         if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
             raise ValueError(f"news.{key} must be a finite non-negative number")
@@ -123,30 +123,41 @@ def collect(symbols=None):
     symbols = list(dict.fromkeys(symbols))
     if not symbols:
         log.info("No candidate or held symbols; news collection skipped")
-        return {}
+        return []
     stock_names = {stock["symbol"]: stock["name"] for stock in aqua_client.list_stocks()}
-    unknown = set(symbols) - stock_names.keys()
+    unknown = sorted(set(symbols) - stock_names.keys())
     if unknown:
-        raise ValueError(f"Unknown symbols: {', '.join(sorted(unknown))}")
+        log.error("Unknown symbols, news collection skipped for them: %s", ", ".join(unknown))
+    pending = [symbol for symbol in symbols if symbol in stock_names]
     results = {}
-    failed = []
-    for index, symbol in enumerate(symbols):
-        if index:
-            time.sleep(cfg["request_interval_seconds"])
-        names = list(dict.fromkeys([stock_names[symbol], *cfg.get("aliases", {}).get(symbol, [])]))
-        query = "(" + " OR ".join('"' + name + '"' for name in names) + f") when:{days}d"
-        try:
-            response = requests.get(RSS_URL, params={"q": query, "hl": "ko", "gl": "KR", "ceid": "KR:ko"},
-                                    timeout=cfg["request_timeout_seconds"],
-                                    headers={"User-Agent": "AITrader-NewsCollector/1.0"})
-            response.raise_for_status()
-            rows, rejected = parse_feed(response.content, symbol, names, started, days,
-                                        cfg.get("match_exclusions", {}).get(symbol, []))
-            results[symbol] = store_rows(rows)
-            log.info("%s: news accepted=%d inserted=%d rejected=%d", symbol, len(rows), results[symbol], rejected)
-        except (requests.RequestException, ET.ParseError, ValueError) as exc:
-            failed.append(symbol)
-            log.error("%s: RSS collection failed (%s)", symbol, type(exc).__name__)
+    for attempt in range(2):
+        if attempt:
+            log.warning("Retrying RSS collection for %d symbols", len(pending))
+            time.sleep(cfg["retry_delay_seconds"])
+        failed = []
+        for index, symbol in enumerate(pending):
+            if index:
+                time.sleep(cfg["request_interval_seconds"])
+            names = list(dict.fromkeys([stock_names[symbol], *cfg.get("aliases", {}).get(symbol, [])]))
+            query = "(" + " OR ".join('"' + name + '"' for name in names) + f") when:{days}d"
+            try:
+                response = requests.get(RSS_URL, params={"q": query, "hl": "ko", "gl": "KR", "ceid": "KR:ko"},
+                                        timeout=cfg["request_timeout_seconds"],
+                                        headers={"User-Agent": "AITrader-NewsCollector/1.0"})
+                response.raise_for_status()
+                rows, rejected = parse_feed(response.content, symbol, names, started, days,
+                                            cfg.get("match_exclusions", {}).get(symbol, []))
+                results[symbol] = store_rows(rows)
+                log.info("%s: news accepted=%d inserted=%d rejected=%d", symbol, len(rows), results[symbol], rejected)
+            except (requests.RequestException, ET.ParseError, ValueError) as exc:
+                failed.append(symbol)
+                log.error("%s: RSS collection failed (%s)", symbol, type(exc).__name__)
+        pending = failed
+        if not pending:
+            break
+    failed = unknown + pending
+    if not results:
+        raise RuntimeError(f"News collection failed for all symbols: {', '.join(failed)}")
     if failed:
-        raise RuntimeError(f"News collection failed: {', '.join(failed)}")
-    return results
+        log.warning("News collection failed for %s; they are excluded from this judgment run", ", ".join(failed))
+    return failed

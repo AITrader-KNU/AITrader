@@ -80,6 +80,7 @@ news:
   lookback_days: 3
   request_timeout_seconds: 20
   request_interval_seconds: 1
+  retry_delay_seconds: 5
   aliases:
     "000660": ["SK하이닉스", "SK 하이닉스"]
     "005380": ["현대차", "현대자동차"]

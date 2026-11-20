@@ -95,7 +95,7 @@ def validate_decision_item(item: Any, symbol: str) -> Dict[str, Any]:
         "news_ids": item.get("news_ids", []) if isinstance(item.get("news_ids"), list) else []
     }
 
-def run() -> None:
+def run(exclude=()) -> None:
     log.info("news_judge.run: 실행 시작")
     config = get_config()
     llm_cfg = config.get("llm", {})
@@ -137,7 +137,16 @@ def run() -> None:
         for sym in held_symbols:
             if sym not in target_dict:
                 target_dict[sym] = {"name": sym, "rank": None, "ret_5d": None, "above_ma20": None, "is_held": True}
-
+        
+        skipped = sorted(set(exclude) & target_dict.keys())
+        if skipped:
+            log.warning(f"news_judge.run: 뉴스 수집 실패 종목은 이번 회차 판단에서 제외: {skipped}")
+            for sym in skipped:
+                del target_dict[sym]
+        if not target_dict:
+            log.info("news_judge.run: 분석 대상이 없습니다.")
+            return
+        
         stocks_payload = []
         for symbol, info in target_dict.items():
             cursor.execute("""
