@@ -41,6 +41,8 @@ exit:
   take_profit: 0.06
   take_profit_sell_ratio: 1.0
   max_holding_days: 5
+  reentry_block_days: 5
+  reentry_block_reasons: [STOP_LOSS, EXPIRED]
 
 review:
   min_cases: 5
