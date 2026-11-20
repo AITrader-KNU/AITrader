@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+import numpy as np
+
 from common import aqua_client as aqua
 from common.aqua_client import AquaError
 from common.config import get_config
@@ -102,6 +104,21 @@ def _blocking_disclosure(conn, symbol: str, now: datetime, cfg: dict) -> str | N
                           (symbol, since)):
         if any(k in r["report_nm"] for k in keywords):
             return r["report_nm"]
+    return None
+
+def _reentry_block(conn, symbol: str, now: datetime, cfg: dict) -> str | None:
+    ex = cfg["exit"]
+    days, reasons = ex.get("reentry_block_days", 0), ex.get("reentry_block_reasons") or []
+    if days <= 0 or not reasons:
+        return None
+    r = conn.execute("SELECT why, created_at FROM sell_requests WHERE symbol = ? AND status = ? "
+                     "ORDER BY request_id DESC LIMIT 1", (symbol, STATUS_DONE)).fetchone()
+    if r is None or r["why"] not in reasons:
+        return None
+    sold = datetime.fromisoformat(r["created_at"]).date()
+    elapsed = np.busday_count(sold, now.date(), holidays=cfg["schedule"].get("holidays") or [])
+    if elapsed < days:
+        return f"{sold} {r['why']}"
     return None
 
 
@@ -216,6 +233,9 @@ def _buy(conn, st: State, d) -> str:
         log.info("BUY %s: 차단 공시 '%s' → SKIPPED", symbol, title)
         return STATUS_SKIPPED
     if symbol in st.held:
+        return STATUS_SKIPPED
+    if (sold := _reentry_block(conn, symbol, st.now, cfg)):
+        log.info("BUY %s: %s 매도 후 %d거래일 재매수 금지 → SKIPPED", symbol, sold, cfg["exit"]["reentry_block_days"])
         return STATUS_SKIPPED
     if len(st.held) >= cfg["risk"]["max_positions"]:
         return STATUS_SKIPPED
