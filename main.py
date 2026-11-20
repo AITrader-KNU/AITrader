@@ -46,10 +46,10 @@ def premarket_job():
 
 
 def judge_job():
-    collector.collect_news()
+    news_failed = collector.collect_news()
     _optional(disclosure.run, "공시 수집")
     if CFG["llm"]["use_llm"]:
-        judge.run()
+        judge.run(exclude=news_failed)
     else:
         temp_rule.run()
     decision_prices.run()

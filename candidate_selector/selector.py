@@ -117,6 +117,11 @@ def run(run_date: date | str | None = None) -> int:
         last = df["date"].max()
         if (date.fromisoformat(rd) - date.fromisoformat(last)).days > STALE_DAYS:
             log.warning("[%s] 최신 봉이 %s 입니다 — 데이터 갱신이 안 됐을 수 있음", rd, last)
+        sym_last = df.groupby("symbol")["date"].transform("max")
+        stale = sorted(df.loc[sym_last < last, "symbol"].unique())
+        if stale:
+            log.warning("[%s] 최신 봉(%s)이 없는 %d종목은 오늘 후보에서 제외: %s", rd, last, len(stale), stale)
+            df = df[sym_last == last]
 
         out, funnel = compute(df, cfg)
         log.info("[%s] 단계별 종목 수: %s", rd, funnel)
